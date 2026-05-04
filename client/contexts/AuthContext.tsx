@@ -29,50 +29,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = getSupabaseClient();
+    let initialized = false;
+    let mounted = true;
 
-    // Check for existing session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        loadProfile(session.user.id).finally(() => setLoading(false));
-      } else {
+    const finishLoading = () => {
+      if (!initialized && mounted) {
+        initialized = true;
         setLoading(false);
       }
-    });
+    };
 
-    // Keep session alive across tab changes / token refreshes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT') {
+    // Safety net: if auth state never resolves (offline / network failure),
+    // force loading=false after 6 seconds so the user isn't stuck on a blank screen.
+    const safetyTimeout = setTimeout(() => {
+      if (mounted) {
         setUser(null);
-      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        // Re-check active status on token refresh
-        loadProfile(session.user.id);
+        finishLoading();
       }
-    });
+    }, 6000);
 
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Internal: loads a profile and sets user state. Returns the profile or throws.
-  const loadProfile = async (userId: string): Promise<UserProfile> => {
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (error) throw error;
-    if (!data) throw new Error('User profile not found.');
-
-    if (!data.is_active) {
-      await supabase.auth.signOut();
-      throw new Error('Account disabled. Contact your administrator.');
+    let supabase: ReturnType<typeof getSupabaseClient>;
+    try {
+      supabase = getSupabaseClient();
+    } catch {
+      // Supabase not configured — clear loading immediately
+      clearTimeout(safetyTimeout);
+      setUser(null);
+      setLoading(false);
+      return;
     }
 
-    setUser(data);
-    return data;
-  };
+    // Use onAuthStateChange as the single source of truth.
+    // In Supabase v2 this fires immediately with INITIAL_SESSION on mount,
+    // so we don't need a separate getSession() call.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+
+        try {
+          if (session?.user && event !== 'SIGNED_OUT' && event !== 'USER_DELETED') {
+            await loadProfile(session.user.id, supabase, mounted, setUser);
+          } else {
+            if (mounted) setUser(null);
+          }
+        } catch {
+          if (mounted) setUser(null);
+        }
+
+        // Mark loading done after the very first event (INITIAL_SESSION).
+        // Subsequent events (TOKEN_REFRESHED, SIGNED_OUT) don't change loading.
+        clearTimeout(safetyTimeout);
+        finishLoading();
+      }
+    );
+
+    return () => {
+      mounted = false;
+      clearTimeout(safetyTimeout);
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const login = async (username: string, password: string): Promise<void> => {
     const supabase = getSupabaseClient();
@@ -84,9 +100,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!data.user) throw new Error('Login failed. Please try again.');
 
     try {
-      await loadProfile(data.user.id);
+      await loadProfile(data.user.id, supabase, true, setUser);
     } catch (profileError: any) {
-      // Sign out of Supabase Auth if we can't load the profile
       await supabase.auth.signOut().catch(() => {});
       throw new Error(profileError.message || 'Could not load user profile. Contact your administrator.');
     }
@@ -94,8 +109,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     const supabase = getSupabaseClient();
-    await supabase.auth.signOut();
     setUser(null);
+    await supabase.auth.signOut();
   };
 
   return (
@@ -104,6 +119,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </AuthContext.Provider>
   );
 };
+
+async function loadProfile(
+  userId: string,
+  supabase: ReturnType<typeof getSupabaseClient>,
+  mounted: boolean | true,
+  setUser: React.Dispatch<React.SetStateAction<UserProfile | null>>
+): Promise<UserProfile> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (error) throw error;
+  if (!data) throw new Error('User profile not found.');
+
+  if (!data.is_active) {
+    await supabase.auth.signOut();
+    throw new Error('Account disabled. Contact your administrator.');
+  }
+
+  if (mounted) setUser(data);
+  return data;
+}
 
 export const useAuth = () => {
   const context = useContext(AuthContext);

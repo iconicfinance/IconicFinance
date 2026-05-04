@@ -1,4 +1,5 @@
 import "./global.css";
+import React from "react";
 
 import { Toaster } from "@/components/ui/toaster";
 import { createRoot } from "react-dom/client";
@@ -236,4 +237,81 @@ const App = () => (
   </QueryClientProvider>
 );
 
-createRoot(document.getElementById("root")!).render(<App />);
+// ─── Error Boundary ─────────────────────────────────────────────────────────
+// Catches unhandled crashes (network errors, import failures, etc.) that would
+// otherwise produce a blank white screen in PWA mode.
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { crashed: boolean }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { crashed: false };
+  }
+  static getDerivedStateFromError() {
+    return { crashed: true };
+  }
+  render() {
+    if (this.state.crashed) {
+      return (
+        <div
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'sans-serif',
+            padding: '24px',
+            textAlign: 'center',
+            background: '#f9fafb',
+            gap: '16px',
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              background: '#0078a8',
+              borderRadius: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>IF</span>
+          </div>
+          <p style={{ fontSize: 18, fontWeight: 600, color: '#111', margin: 0 }}>
+            Something went wrong
+          </p>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>
+            The app encountered an unexpected error. Please reload.
+          </p>
+          <button
+            onClick={() => window.location.replace('/login')}
+            style={{
+              marginTop: 8,
+              padding: '10px 24px',
+              background: '#0078a8',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Reload App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+createRoot(document.getElementById("root")!).render(
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>
+);
