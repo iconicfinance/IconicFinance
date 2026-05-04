@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Loader, AlertTriangle } from 'lucide-react';
+import { AlertCircle, Loader, AlertTriangle, Pencil, CalendarPlus } from 'lucide-react';
 import { PaymentMethodIcon } from '@/components/PaymentMethodIcon';
+import { EditTransactionModal } from './EditTransactionModal';
+import { AddTransactionModal } from './AddTransactionModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,6 +53,9 @@ export default function AdminDashboard() {
   const [labFeeInput, setLabFeeInput] = useState('');
   const [savingLabFee, setSavingLabFee] = useState(false);
   const [labFeeError, setLabFeeError] = useState('');
+
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!fromDate || !toDate) return;
@@ -134,11 +139,8 @@ export default function AdminDashboard() {
           <p className="text-muted-foreground text-sm mt-1">Financial overview</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button size="sm" onClick={() => navigate('/add-payment')}>
-            + Add Payment
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => navigate('/add-expense')}>
-            + Add Expense
+          <Button size="sm" onClick={() => setAddModalOpen(true)}>
+            <CalendarPlus className="w-4 h-4 mr-1.5" /> Add Transaction
           </Button>
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Refresh'}
@@ -308,6 +310,7 @@ export default function AdminDashboard() {
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Dr. Earnings</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Recorded By</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground whitespace-nowrap"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -368,6 +371,16 @@ export default function AdminDashboard() {
                       <td className="px-4 py-3 text-muted-foreground" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {tx.expense_description || '—'}
                       </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditingTx(tx); }}
+                          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                          title="Edit transaction"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -418,6 +431,27 @@ export default function AdminDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Transaction Modal */}
+      <EditTransactionModal
+        transaction={editingTx}
+        onClose={() => setEditingTx(null)}
+        onSaved={(updated) => {
+          setTransactions((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+          setEditingTx(null);
+        }}
+      />
+
+      {/* Add Transaction Modal */}
+      <AddTransactionModal
+        open={addModalOpen}
+        defaultDate={fromDate || new Date().toISOString().split('T')[0]}
+        onClose={() => setAddModalOpen(false)}
+        onSaved={(tx) => {
+          setTransactions((prev) => [tx, ...prev]);
+          setAddModalOpen(false);
+        }}
+      />
     </div>
   );
 }

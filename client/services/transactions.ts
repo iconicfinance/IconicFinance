@@ -113,6 +113,7 @@ export const createPaymentIn = async (data: {
   has_lab_fees: boolean;
   lab_fees_amount: number | null;
   expense_description?: string | null;
+  created_at?: string;
 }): Promise<Transaction> => {
   const supabase = getSupabaseClient();
   const { data: result, error } = await supabase
@@ -131,6 +132,7 @@ export const createExpenseOut = async (data: {
   final_amount: number;
   expense_description: string;
   payment_method?: 'cash' | 'vodafone_cash' | 'instapay';
+  created_at?: string;
 }): Promise<Transaction> => {
   const supabase = getSupabaseClient();
   const { data: result, error } = await supabase
@@ -147,6 +149,33 @@ export const createExpenseOut = async (data: {
 
   if (error) throw error;
   return result;
+};
+
+export const updateTransaction = async (
+  id: string,
+  updates: Partial<{
+    patient_id: string | null;
+    patient_name: string | null;
+    doctor_id: string | null;
+    payment_method: 'cash' | 'vodafone_cash' | 'instapay' | null;
+    base_amount: number | null;
+    final_amount: number;
+    has_lab_fees: boolean;
+    lab_fees_amount: number | null;
+    expense_description: string | null;
+    created_at: string;
+  }>
+): Promise<Transaction> => {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('transactions')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 };
 
 export const updateLabFees = async (
