@@ -179,23 +179,23 @@ export default function AdminUsers() {
             <div className="text-center py-12 text-muted-foreground">No users found.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="text-sm" style={{ minWidth: '650px', width: '100%' }}>
                 <thead>
                   <tr className="border-b bg-muted/40">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Username</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Full Name</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Doctor</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Username</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Full Name</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Role</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Doctor</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id} className="border-b last:border-0 hover:bg-muted/20">
-                      <td className="px-4 py-3 font-mono text-sm">{u.username}</td>
-                      <td className="px-4 py-3 font-medium">{u.full_name}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 font-mono text-sm whitespace-nowrap">{u.username}</td>
+                      <td className="px-4 py-3 font-medium whitespace-nowrap">{u.full_name}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <Badge
                           className={
                             u.role === 'admin'
@@ -208,15 +208,15 @@ export default function AdminUsers() {
                           {ROLE_LABELS[u.role]}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{getDoctorName(u.doctor_id)}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{getDoctorName(u.doctor_id)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
                         {u.is_active ? (
                           <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>
                         ) : (
                           <Badge variant="secondary">Inactive</Badge>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-2">
                           <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
                             <Pencil className="w-4 h-4" />
