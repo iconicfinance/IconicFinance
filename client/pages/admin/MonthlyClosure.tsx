@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,9 +19,6 @@ import { getTransactionsByDoctor } from '@/services/transactions';
 import {
   formatCurrency,
   formatDate,
-  formatDateTime,
-  formatPaymentMethod,
-  formatMonth,
   MONTH_NAMES,
 } from '@/lib/utils';
 
@@ -30,14 +27,6 @@ interface DoctorCardState {
   comment: string;
   saving: boolean;
   error: string;
-}
-
-interface PrintData {
-  row: MonthlySummaryRow;
-  closing: MonthlyClosing | null;
-  transactions: any[];
-  month: number;
-  year: number;
 }
 
 export default function AdminMonthlyClosure() {
@@ -51,8 +40,7 @@ export default function AdminMonthlyClosure() {
   const [cardStates, setCardStates] = useState<Record<string, DoctorCardState>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [printData, setPrintData] = useState<PrintData | null>(null);
-  const printTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const [printingId, setPrintingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -134,18 +122,27 @@ export default function AdminMonthlyClosure() {
 
   const handlePrint = async (row: MonthlySummaryRow) => {
     const closing = getClosing(row.doctor_id);
+    setPrintingId(row.doctor_id);
     try {
       const from = new Date(year, month - 1, 1);
       const to = new Date(year, month, 1);
       const txs = await getTransactionsByDoctor(row.doctor_id, from, to);
-      setPrintData({ row, closing, transactions: txs, month, year });
-      clearTimeout(printTimeout.current);
-      printTimeout.current = setTimeout(() => {
-        window.print();
-        setPrintData(null);
-      }, 300);
+
+      const html = buildPrintHTML({ row, closing, transactions: txs, month, year });
+
+      // Open in a new window — works on all platforms including iOS PWA
+      // (iOS PWA opens in Safari, where the user can print/save to PDF via the share sheet)
+      const win = window.open('', '_blank');
+      if (win) {
+        win.document.write(html);
+        win.document.close();
+      } else {
+        setError('Pop-up blocked. Please allow pop-ups for this site to export PDFs.');
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load print data');
+    } finally {
+      setPrintingId(null);
     }
   };
 
@@ -159,14 +156,7 @@ export default function AdminMonthlyClosure() {
 
   return (
     <>
-      {/* Print View — hidden on screen, shown only when printing */}
-      {printData && (
-        <div className="print-only" style={{ display: 'none' }}>
-          <PrintView data={printData} />
-        </div>
-      )}
-
-      <div className="space-y-6 no-print">
+      <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Monthly Closing</h1>
           <p className="text-muted-foreground text-sm mt-1">End-of-month financial settlement</p>
@@ -291,8 +281,12 @@ export default function AdminMonthlyClosure() {
                           variant="outline"
                           size="sm"
                           onClick={() => handlePrint(row)}
+                          disabled={printingId === row.doctor_id}
                         >
-                          <Printer className="w-4 h-4 mr-1" /> Print / PDF
+                          {printingId === row.doctor_id
+                            ? <Loader className="w-4 h-4 mr-1 animate-spin" />
+                            : <Printer className="w-4 h-4 mr-1" />}
+                          {printingId === row.doctor_id ? 'Loading...' : 'Print / PDF'}
                         </Button>
                         {isConfirmed && closing && (
                           <Button
@@ -382,101 +376,146 @@ export default function AdminMonthlyClosure() {
           </div>
         )}
       </div>
-
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          .print-only { display: block !important; }
-        }
-        @media screen {
-          .print-only { display: none !important; }
-        }
-      `}</style>
     </>
   );
 }
 
-function PrintView({ data }: { data: PrintData }) {
-  const { row, closing, transactions, month, year } = data;
+// ─── Standalone HTML generator ────────────────────────────────────────────────
+// Returns a complete self-contained HTML document opened in a new window.
+// Works on desktop, Android, and iOS (PWA opens it in Safari where print/share works).
 
-  const doctorTypeLabel = () => {
-    if (row.doctor_type === 'primary') return 'Primary';
-    if (row.doctor_type === 'extern') return 'Extern (40%)';
-    return row.custom_label ? `Custom — ${row.custom_label}` : `Custom (${row.custom_percentage}%)`;
-  };
-
-  return (
-    <div style={{ fontFamily: 'sans-serif', padding: '40px', maxWidth: '900px', margin: '0 auto', color: '#111' }}>
-      <div style={{ borderBottom: '2px solid #333', paddingBottom: '16px', marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '28px', fontWeight: 'bold', margin: 0 }}>Iconic Finance</h1>
-        <p style={{ margin: '4px 0 0', color: '#555', fontSize: '14px' }}>Monthly Closing Report — {MONTH_NAMES[month - 1]} {year}</p>
-      </div>
-
-      <div style={{ marginBottom: '24px' }}>
-        <p style={{ margin: '4px 0', fontSize: '15px' }}><strong>Doctor:</strong> {row.doctor_name}</p>
-        <p style={{ margin: '4px 0', fontSize: '15px' }}><strong>Type:</strong> {doctorTypeLabel()}</p>
-        <p style={{ margin: '4px 0', fontSize: '15px' }}><strong>Period:</strong> {MONTH_NAMES[month - 1]} {year}</p>
-        {closing?.is_confirmed && (
-          <p style={{ margin: '4px 0', fontSize: '15px' }}>
-            <strong>Confirmed:</strong> {closing.confirmed_at ? formatDateTime(closing.confirmed_at) : ''}
-          </p>
-        )}
-      </div>
-
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '32px', fontSize: '13px' }}>
-        <thead>
-          <tr style={{ background: '#f3f4f6' }}>
-            {['Date', 'Patient', 'Method', 'Base Amount', 'Final Amount', 'Lab Fees', 'Dr. Earnings'].map((h) => (
-              <th key={h} style={{ padding: '8px 12px', textAlign: 'left', border: '1px solid #d1d5db', fontWeight: 600 }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {transactions.map((tx: any) => (
-            <tr key={tx.id}>
-              <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb' }}>{formatDate(tx.created_at)}</td>
-              <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb' }}>{tx.patient_name || '—'}</td>
-              <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb' }}>{formatPaymentMethod(tx.payment_method)}</td>
-              <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb', textAlign: 'right' }}>{formatCurrency(tx.base_amount)}</td>
-              <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb', textAlign: 'right' }}>{formatCurrency(tx.final_amount)}</td>
-              <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb', textAlign: 'right' }}>
-                {tx.lab_fees_pending ? 'Pending' : tx.has_lab_fees ? formatCurrency(tx.lab_fees_amount) : '—'}
-              </td>
-              <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb', textAlign: 'right' }}>{formatCurrency(tx.doctor_earnings)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px' }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: '16px' }}>Summary</h3>
-        <table style={{ width: '100%', fontSize: '14px' }}>
-          <tbody>
-            {[
-              ['Total Cases', row.case_count.toString()],
-              ['Total Revenue', formatCurrency(row.total_revenue)],
-              ['Total Lab Fees Deducted', formatCurrency(row.total_lab_fees)],
-              ['Gross Earnings', formatCurrency(row.doctor_gross_earnings)],
-              ['Amount to Pay', formatCurrency(closing?.amount_to_pay ?? row.doctor_gross_earnings)],
-            ].map(([label, value]) => (
-              <tr key={label}>
-                <td style={{ padding: '4px 0', color: '#555' }}>{label}</td>
-                <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{value}</td>
-              </tr>
-            ))}
-            {closing?.comment && (
-              <tr>
-                <td style={{ padding: '4px 0', color: '#555' }}>Admin Comment</td>
-                <td style={{ padding: '4px 0', textAlign: 'right', fontStyle: 'italic' }}>{closing.comment}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <p style={{ marginTop: '32px', color: '#9ca3af', fontSize: '11px', textAlign: 'center' }}>
-        Generated by Iconic Finance — {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}
-      </p>
-    </div>
-  );
+interface PrintPayload {
+  row: MonthlySummaryRow;
+  closing: MonthlyClosing | null;
+  transactions: any[];
+  month: number;
+  year: number;
 }
+
+function buildPrintHTML({ row, closing, transactions, month, year }: PrintPayload): string {
+  const monthName = MONTH_NAMES[month - 1];
+
+  const fmt = (n: number | null | undefined) =>
+    n == null ? '—' : `EGP ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const fmtDate = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const methodLabel: Record<string, string> = { cash: 'Cash', vodafone_cash: 'Vodafone Cash', instapay: 'Instapay' };
+
+  const typeLabel =
+    row.doctor_type === 'primary' ? 'Primary' :
+    row.doctor_type === 'extern' ? 'Extern (40%)' :
+    row.custom_label ? `Custom — ${row.custom_label}` : `Custom (${row.custom_percentage}%)`;
+
+  const amountToPay = fmt(closing?.amount_to_pay ?? row.doctor_gross_earnings);
+
+  const txRows = transactions.map((tx: any) => `
+    <tr>
+      <td>${fmtDate(tx.created_at)}</td>
+      <td>${tx.patient_name || '—'}</td>
+      <td>${methodLabel[tx.payment_method] || '—'}</td>
+      <td class="right">${fmt(tx.base_amount)}</td>
+      <td class="right">${fmt(tx.final_amount)}</td>
+      <td class="right">${tx.lab_fees_pending ? '⚠ Pending' : tx.has_lab_fees ? fmt(tx.lab_fees_amount) : '—'}</td>
+      <td class="right">${fmt(tx.doctor_earnings)}</td>
+    </tr>`).join('');
+
+  const confirmedLine = closing?.is_confirmed && closing.confirmed_at
+    ? `<p><strong>Confirmed:</strong> ${new Date(closing.confirmed_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}</p>`
+    : '';
+
+  const commentLine = closing?.comment
+    ? `<tr><td class="label">Admin Comment</td><td class="value" style="font-style:italic">${closing.comment}</td></tr>`
+    : '';
+
+  const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iconic Finance — ${row.doctor_name} — ${monthName} ${year}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #111; background: #fff; padding: 32px; max-width: 960px; margin: 0 auto; font-size: 13px; }
+    h1 { font-size: 26px; font-weight: 700; color: #0078a8; }
+    h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+    .header { border-bottom: 2px solid #0078a8; padding-bottom: 14px; margin-bottom: 22px; }
+    .header p { color: #555; margin-top: 4px; font-size: 13px; }
+    .meta { margin-bottom: 22px; line-height: 1.8; }
+    .meta p { font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 28px; font-size: 12px; }
+    thead tr { background: #f3f4f6; }
+    th { padding: 8px 10px; text-align: left; font-weight: 600; border: 1px solid #d1d5db; color: #374151; }
+    td { padding: 7px 10px; border: 1px solid #e5e7eb; color: #111; }
+    .right { text-align: right; }
+    .summary-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 18px; }
+    .summary-box h2 { margin-bottom: 10px; font-size: 15px; }
+    .summary-table { width: 100%; border-collapse: collapse; }
+    .summary-table .label { color: #555; padding: 5px 0; width: 60%; }
+    .summary-table .value { text-align: right; font-weight: 600; padding: 5px 0; }
+    .footer { margin-top: 32px; text-align: center; color: #9ca3af; font-size: 11px; border-top: 1px solid #e5e7eb; padding-top: 12px; }
+    @media print {
+      body { padding: 16px; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Iconic Finance</h1>
+    <p>Monthly Closing Report — ${monthName} ${year}</p>
+  </div>
+
+  <div class="meta">
+    <p><strong>Doctor:</strong> ${row.doctor_name}</p>
+    <p><strong>Type:</strong> ${typeLabel}</p>
+    <p><strong>Period:</strong> ${monthName} ${year}</p>
+    ${confirmedLine}
+  </div>
+
+  <h2>Transaction Details</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Patient</th>
+        <th>Method</th>
+        <th class="right">Base Amount</th>
+        <th class="right">Final Amount</th>
+        <th class="right">Lab Fees</th>
+        <th class="right">Dr. Earnings</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${txRows || '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:16px">No transactions this month</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="summary-box">
+    <h2>Summary</h2>
+    <table class="summary-table">
+      <tr><td class="label">Total Cases</td><td class="value">${row.case_count}</td></tr>
+      <tr><td class="label">Total Revenue</td><td class="value">${fmt(row.total_revenue)}</td></tr>
+      <tr><td class="label">Total Lab Fees Deducted</td><td class="value">${fmt(row.total_lab_fees)}</td></tr>
+      <tr><td class="label">Gross Earnings</td><td class="value">${fmt(row.doctor_gross_earnings)}</td></tr>
+      <tr><td class="label" style="font-weight:600">Amount to Pay</td><td class="value" style="font-size:15px;color:#0078a8">${amountToPay}</td></tr>
+      ${commentLine}
+    </table>
+  </div>
+
+  <div class="footer">Generated by Iconic Finance — ${today}</div>
+
+  <script>
+    // Auto-trigger print on desktop and Android.
+    // On iOS (PWA or Safari), the user can use the Share button → Print / Save to Files.
+    window.addEventListener('load', function() {
+      setTimeout(function() { window.print(); }, 400);
+    });
+  </script>
+</body>
+</html>`;
+}
+
