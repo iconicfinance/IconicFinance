@@ -1,4 +1,13 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type FC,
+  type ReactNode,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { getSupabaseClient } from '@/lib/supabase';
 
 export type UserRole = 'admin' | 'doctor' | 'assistant';
@@ -24,7 +33,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -123,8 +132,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 async function loadProfile(
   userId: string,
   supabase: ReturnType<typeof getSupabaseClient>,
-  mounted: boolean | true,
-  setUser: React.Dispatch<React.SetStateAction<UserProfile | null>>
+  mounted: boolean,
+  setUser: Dispatch<SetStateAction<UserProfile | null>>
 ): Promise<UserProfile> {
   const { data, error } = await supabase
     .from('users')

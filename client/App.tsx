@@ -1,5 +1,5 @@
 import "./global.css";
-import React from "react";
+import { Component, type ReactNode } from "react";
 
 import { Toaster } from "@/components/ui/toaster";
 import { createRoot } from "react-dom/client";
@@ -59,7 +59,7 @@ const RootRedirect = () => {
 };
 
 // Layout wrapper for protected routes
-const LayoutRoute = ({ children }: { children: React.ReactNode }) => (
+const LayoutRoute = ({ children }: { children: ReactNode }) => (
   <AppLayout>{children}</AppLayout>
 );
 
@@ -240,8 +240,8 @@ const App = () => (
 // ─── Error Boundary ─────────────────────────────────────────────────────────
 // Catches unhandled crashes (network errors, import failures, etc.) that would
 // otherwise produce a blank white screen in PWA mode.
-class AppErrorBoundary extends React.Component<
-  { children: React.ReactNode },
+class AppErrorBoundary extends Component<
+  { children: ReactNode },
   { crashed: boolean }
 > {
   constructor(props: any) {
