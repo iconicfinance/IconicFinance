@@ -34,8 +34,16 @@ export default function Login() {
         <div className="bg-white rounded-xl shadow-2xl p-8">
           {/* Logo/Header */}
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-primary mb-2">Iconic Finance</h1>
-            <p className="text-muted-foreground">Clinic Finance Management System</p>
+            <div className="flex justify-center mb-4">
+              <img
+                src="/logos/iconic-finance.png"
+                alt="Iconic Finance"
+                className="w-24 h-24 rounded-full object-cover shadow-md"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+            <h1 className="text-3xl font-bold text-primary mb-1">Iconic Finance</h1>
+            <p className="text-muted-foreground text-sm">Clinic Finance Management System</p>
           </div>
 
           {/* Login Form */}

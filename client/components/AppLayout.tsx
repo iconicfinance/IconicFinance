@@ -119,7 +119,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <div className="flex items-center justify-between h-14 px-4 sm:px-6">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
+            <img
+              src="/logos/iconic-finance.png"
+              alt="Iconic Finance"
+              className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+              onError={(e) => {
+                const el = e.currentTarget;
+                el.style.display = 'none';
+                if (el.nextElementSibling) (el.nextElementSibling as HTMLElement).style.display = 'flex';
+              }}
+            />
+            <div className="w-9 h-9 bg-primary rounded-full items-center justify-center flex-shrink-0 hidden">
               <span className="text-white font-bold text-sm">IF</span>
             </div>
             <span className="font-bold text-base text-primary">Iconic Finance</span>

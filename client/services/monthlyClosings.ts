@@ -30,6 +30,7 @@ export interface MonthlySummaryRow {
   doctor_gross_earnings: number;
   clinic_total_revenue: number;
   clinic_total_expenses: number;
+  clinic_total_salaries: number;
   clinic_extern_custom_cut: number;
   clinic_remaining: number;
   primary_doctor_count: number;

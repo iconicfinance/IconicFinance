@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer } from 'lucide-react';
+import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +15,12 @@ import {
   MonthlySummaryRow,
   MonthlyClosing,
 } from '@/services/monthlyClosings';
+import {
+  getSalariesForMonth,
+  createSalary,
+  deleteSalary,
+  Salary,
+} from '@/services/salaries';
 import { getTransactionsByDoctor } from '@/services/transactions';
 import {
   formatCurrency,
@@ -42,16 +48,26 @@ export default function AdminMonthlyClosure() {
   const [error, setError] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
 
+  // Salary state
+  const [salaries, setSalaries] = useState<Salary[]>([]);
+  const [newSalaryName, setNewSalaryName] = useState('');
+  const [newSalaryAmount, setNewSalaryAmount] = useState('');
+  const [newSalaryNotes, setNewSalaryNotes] = useState('');
+  const [addingSalary, setAddingSalary] = useState(false);
+  const [salaryError, setSalaryError] = useState('');
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [sumData, closingData] = await Promise.all([
+      const [sumData, closingData, salaryData] = await Promise.all([
         getMonthlySummary(year, month),
         getClosingsForMonth(year, month),
+        getSalariesForMonth(year, month),
       ]);
       setSummary(sumData);
       setClosings(closingData);
+      setSalaries(salaryData);
 
       const states: Record<string, DoctorCardState> = {};
       sumData.forEach((row) => {
@@ -120,6 +136,44 @@ export default function AdminMonthlyClosure() {
     }
   };
 
+  const handleAddSalary = async () => {
+    if (!user) return;
+    if (!newSalaryName.trim()) { setSalaryError('Person name is required.'); return; }
+    const amount = parseFloat(newSalaryAmount);
+    if (!newSalaryAmount || amount <= 0) { setSalaryError('Enter a valid amount.'); return; }
+    setSalaryError('');
+    setAddingSalary(true);
+    try {
+      const created = await createSalary({
+        month, year,
+        person_name: newSalaryName.trim(),
+        amount,
+        notes: newSalaryNotes.trim() || null,
+        created_by: user.id,
+      });
+      setSalaries((prev) => [...prev, created]);
+      setNewSalaryName('');
+      setNewSalaryAmount('');
+      setNewSalaryNotes('');
+      // Reload summary so clinic_remaining reflects the new salary
+      await load();
+    } catch (err: any) {
+      setSalaryError(err.message || 'Failed to add salary.');
+    } finally {
+      setAddingSalary(false);
+    }
+  };
+
+  const handleDeleteSalary = async (id: string) => {
+    try {
+      await deleteSalary(id);
+      setSalaries((prev) => prev.filter((s) => s.id !== id));
+      await load();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete salary.');
+    }
+  };
+
   const handlePrint = async (row: MonthlySummaryRow) => {
     const closing = getClosing(row.doctor_id);
     setPrintingId(row.doctor_id);
@@ -128,7 +182,7 @@ export default function AdminMonthlyClosure() {
       const to = new Date(year, month, 1);
       const txs = await getTransactionsByDoctor(row.doctor_id, from, to);
 
-      const html = buildPrintHTML({ row, closing, transactions: txs, month, year });
+      const html = buildPrintHTML({ row, closing, transactions: txs, salaries, month, year });
 
       // Open in a new window — works on all platforms including iOS PWA
       // (iOS PWA opens in Safari, where the user can print/save to PDF via the share sheet)
@@ -221,7 +275,7 @@ export default function AdminMonthlyClosure() {
         {!loading && clinicRow && (
           <div className="space-y-3">
             <h2 className="text-lg font-semibold">Clinic Summary — {MONTH_NAMES[month - 1]} {year}</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
               <Card className="bg-green-50 border-green-200">
                 <CardHeader className="pb-1"><CardTitle className="text-xs text-green-700">Total Revenue</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-bold text-green-800">{formatCurrency(clinicRow.clinic_total_revenue)}</p></CardContent>
@@ -229,6 +283,10 @@ export default function AdminMonthlyClosure() {
               <Card className="bg-red-50 border-red-200">
                 <CardHeader className="pb-1"><CardTitle className="text-xs text-red-700">Total Expenses</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-bold text-red-800">{formatCurrency(clinicRow.clinic_total_expenses)}</p></CardContent>
+              </Card>
+              <Card className="bg-orange-50 border-orange-200">
+                <CardHeader className="pb-1"><CardTitle className="text-xs text-orange-700">Total Salaries</CardTitle></CardHeader>
+                <CardContent><p className="text-lg font-bold text-orange-800">{formatCurrency(clinicRow.clinic_total_salaries)}</p></CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-1"><CardTitle className="text-xs text-muted-foreground">Extern / Custom Cut</CardTitle></CardHeader>
@@ -248,6 +306,87 @@ export default function AdminMonthlyClosure() {
               </Card>
             </div>
           </div>
+        )}
+
+        {/* ── Salary Management (admin only) ── */}
+        {!loading && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                Monthly Salaries — {MONTH_NAMES[month - 1]} {year}
+                <Badge variant="secondary" className="ml-auto">
+                  {formatCurrency(salaries.reduce((s, x) => s + Number(x.amount), 0))} total
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Existing salaries */}
+              {salaries.length > 0 && (
+                <div className="space-y-2">
+                  {salaries.map((sal) => (
+                    <div key={sal.id} className="flex items-center gap-3 p-3 border rounded-lg bg-orange-50 border-orange-200">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{sal.person_name}</p>
+                        {sal.notes && <p className="text-xs text-muted-foreground truncate">{sal.notes}</p>}
+                      </div>
+                      <span className="font-semibold text-orange-700 whitespace-nowrap">{formatCurrency(sal.amount)}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSalary(sal.id)}
+                        className="p-1.5 rounded hover:bg-red-100 text-muted-foreground hover:text-red-600 transition-colors flex-shrink-0"
+                        title="Delete salary"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add new salary */}
+              {salaryError && (
+                <p className="text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {salaryError}
+                </p>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Person Name *</Label>
+                  <Input
+                    placeholder="e.g. Reception staff"
+                    value={newSalaryName}
+                    onChange={(e) => setNewSalaryName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Amount (EGP) *</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={newSalaryAmount}
+                    onChange={(e) => setNewSalaryAmount(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Notes (optional)</Label>
+                  <Input
+                    placeholder="Any notes..."
+                    value={newSalaryNotes}
+                    onChange={(e) => setNewSalaryNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+              <Button size="sm" onClick={handleAddSalary} disabled={addingSalary}>
+                {addingSalary ? <Loader className="w-4 h-4 mr-1.5 animate-spin" /> : <Plus className="w-4 h-4 mr-1.5" />}
+                {addingSalary ? 'Adding...' : 'Add Salary'}
+              </Button>
+              {salaries.length === 0 && (
+                <p className="text-sm text-muted-foreground">No salaries recorded for this month yet.</p>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Per-Doctor Cards */}
@@ -388,11 +527,12 @@ interface PrintPayload {
   row: MonthlySummaryRow;
   closing: MonthlyClosing | null;
   transactions: any[];
+  salaries: Salary[];
   month: number;
   year: number;
 }
 
-function buildPrintHTML({ row, closing, transactions, month, year }: PrintPayload): string {
+function buildPrintHTML({ row, closing, transactions, salaries, month, year }: PrintPayload): string {
   const monthName = MONTH_NAMES[month - 1];
 
   const fmt = (n: number | null | undefined) =>
@@ -429,6 +569,36 @@ function buildPrintHTML({ row, closing, transactions, month, year }: PrintPayloa
     ? `<tr><td class="label">Admin Comment</td><td class="value" style="font-style:italic">${closing.comment}</td></tr>`
     : '';
 
+  const totalSalaries = salaries.reduce((s, x) => s + Number(x.amount), 0);
+
+  // Salaries section — shown for primary doctors only (they absorb the salary deduction)
+  const salariesSection = (row.doctor_type === 'primary' && salaries.length > 0) ? `
+  <div style="margin-bottom:28px">
+    <h2 style="font-size:15px;font-weight:600;margin-bottom:10px;color:#92400e">Monthly Salary Deductions</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="background:#fef3c7">
+          <th style="padding:7px 10px;text-align:left;border:1px solid #fcd34d;font-weight:600">Employee</th>
+          <th style="padding:7px 10px;text-align:left;border:1px solid #fcd34d;font-weight:600">Notes</th>
+          <th style="padding:7px 10px;text-align:right;border:1px solid #fcd34d;font-weight:600">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${salaries.map((s) => `
+        <tr>
+          <td style="padding:6px 10px;border:1px solid #fde68a">${s.person_name}</td>
+          <td style="padding:6px 10px;border:1px solid #fde68a;color:#555">${s.notes || '—'}</td>
+          <td style="padding:6px 10px;border:1px solid #fde68a;text-align:right">${fmt(s.amount)}</td>
+        </tr>`).join('')}
+        <tr style="background:#fef3c7;font-weight:600">
+          <td colspan="2" style="padding:7px 10px;border:1px solid #fcd34d">Total Salaries Deducted</td>
+          <td style="padding:7px 10px;border:1px solid #fcd34d;text-align:right;color:#92400e">${fmt(totalSalaries)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>` : '';
+
+  const logoUrl = `${window.location.origin}/logos/iconic-finance.png`;
   const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
   return `<!DOCTYPE html>
@@ -464,9 +634,12 @@ function buildPrintHTML({ row, closing, transactions, month, year }: PrintPayloa
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>Iconic Finance</h1>
-    <p>Monthly Closing Report — ${monthName} ${year}</p>
+  <div class="header" style="display:flex;align-items:center;gap:16px">
+    <img src="${logoUrl}" alt="Iconic Finance" style="width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">
+    <div>
+      <h1>Iconic Finance</h1>
+      <p>Monthly Closing Report — ${monthName} ${year}</p>
+    </div>
   </div>
 
   <div class="meta">
@@ -494,12 +667,15 @@ function buildPrintHTML({ row, closing, transactions, month, year }: PrintPayloa
     </tbody>
   </table>
 
+  ${salariesSection}
+
   <div class="summary-box">
     <h2>Summary</h2>
     <table class="summary-table">
       <tr><td class="label">Total Cases</td><td class="value">${row.case_count}</td></tr>
       <tr><td class="label">Total Revenue</td><td class="value">${fmt(row.total_revenue)}</td></tr>
       <tr><td class="label">Total Lab Fees Deducted</td><td class="value">${fmt(row.total_lab_fees)}</td></tr>
+      ${row.doctor_type === 'primary' && totalSalaries > 0 ? `<tr><td class="label" style="color:#92400e">Total Salaries Deducted</td><td class="value" style="color:#92400e">${fmt(totalSalaries)}</td></tr>` : ''}
       <tr><td class="label">Gross Earnings</td><td class="value">${fmt(row.doctor_gross_earnings)}</td></tr>
       <tr><td class="label" style="font-weight:600">Amount to Pay</td><td class="value" style="font-size:15px;color:#0078a8">${amountToPay}</td></tr>
       ${commentLine}
