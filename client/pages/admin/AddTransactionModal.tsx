@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader, AlertCircle, Search, X } from 'lucide-react';
+import { Loader, AlertCircle, Search, X, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,9 +12,13 @@ import {
 } from '@/components/ui/select';
 import { Transaction, createPaymentIn, createExpenseOut } from '@/services/transactions';
 import { getActiveDoctors, Doctor } from '@/services/doctors';
+import { getActiveLabs, Lab } from '@/services/labs';
+import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
 import { searchPatients, createPatient, Patient } from '@/services/patients';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/utils';
+
+interface LabEntry { labId: string; amount: string; }
 
 interface Props {
   open: boolean;
@@ -52,8 +56,9 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
   const [paymentMethod, setPaymentMethod] = useState('');
   const [baseAmount, setBaseAmount] = useState('');
   const [hasLabFees, setHasLabFees] = useState(false);
-  const [labFeesAmount, setLabFeesAmount] = useState('');
+  const [labEntries, setLabEntries] = useState<LabEntry[]>([{ labId: '', amount: '' }]);
   const [description, setDescription] = useState('');
+  const [labs, setLabs] = useState<Lab[]>([]);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
@@ -64,7 +69,10 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
       setType('payment_in');
       setError('');
       resetForm();
-      getActiveDoctors().then(setDoctors).catch(console.error);
+      Promise.allSettled([getActiveDoctors(), getActiveLabs()]).then(([dr, lb]) => {
+        if (dr.status === 'fulfilled') setDoctors(dr.value);
+        if (lb.status === 'fulfilled') setLabs(lb.value);
+      });
     }
   }, [open, defaultDate]);
 
@@ -72,7 +80,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
     setSelectedPatient(null); setPatientQuery(''); setPatientResults([]);
     setCreatingNew(false); setNewPatientName(''); setNewPatientCode('');
     setDoctorId(''); setPaymentMethod(''); setBaseAmount('');
-    setHasLabFees(false); setLabFeesAmount(''); setDescription('');
+    setHasLabFees(false); setLabEntries([{ labId: '', amount: '' }]); setDescription('');
   };
 
   useEffect(() => {
@@ -98,6 +106,12 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
 
   const baseNum = parseFloat(baseAmount) || 0;
   const finalAmount = paymentMethod === 'vodafone_cash' ? Math.round(baseNum * 1.01 * 100) / 100 : baseNum;
+  const totalLabFees = labEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+
+  const addLabEntry    = () => setLabEntries((p) => [...p, { labId: '', amount: '' }]);
+  const removeLabEntry = (i: number) => setLabEntries((p) => p.filter((_, idx) => idx !== i));
+  const updateLabEntry = (i: number, field: keyof LabEntry, value: string) =>
+    setLabEntries((p) => p.map((e, idx) => idx === i ? { ...e, [field]: value } : e));
 
   const handleSave = async () => {
     setError('');
@@ -122,6 +136,9 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
         if (!paymentMethod) { setError('Select a payment method.'); setSaving(false); return; }
         if (!baseAmount || baseNum <= 0) { setError('Enter a valid amount.'); setSaving(false); return; }
 
+        const validLabEntries = hasLabFees
+          ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
+          : [];
         saved = await createPaymentIn({
           assistant_id: user.id,
           assistant_name: user.full_name,
@@ -131,11 +148,17 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
           payment_method: paymentMethod as any,
           base_amount: baseNum,
           final_amount: finalAmount,
-          has_lab_fees: hasLabFees,
-          lab_fees_amount: hasLabFees && labFeesAmount ? parseFloat(labFeesAmount) : null,
+          has_lab_fees: hasLabFees && validLabEntries.length > 0,
+          lab_fees_amount: hasLabFees && validLabEntries.length > 0 ? totalLabFees : null,
           expense_description: description.trim() || null,
           created_at: createdAt,
         });
+        if (validLabEntries.length > 0) {
+          await saveLabFeesForTransaction(
+            saved.id,
+            validLabEntries.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+          );
+        }
       } else {
         if (!description.trim()) { setError('Description is required.'); setSaving(false); return; }
         if (!paymentMethod) { setError('Select a payment method.'); setSaving(false); return; }
@@ -282,11 +305,30 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
           {type === 'payment_in' && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <Checkbox id="add-lab" checked={hasLabFees} onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabFeesAmount(''); }} />
+                <Checkbox id="add-lab" checked={hasLabFees} onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabEntries([{ labId: '', amount: '' }]); }} />
                 <Label htmlFor="add-lab" className="cursor-pointer">Lab fees included?</Label>
               </div>
               {hasLabFees && (
-                <Input type="number" min="0" step="0.01" placeholder="Lab fees amount (leave blank to fill later)" value={labFeesAmount} onChange={(e) => setLabFeesAmount(e.target.value)} />
+                <div className="pl-6 space-y-2">
+                  {labEntries.map((entry, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Select value={entry.labId} onValueChange={(v) => updateLabEntry(i, 'labId', v)}>
+                        <SelectTrigger className="flex-1 h-9"><SelectValue placeholder="Select lab" /></SelectTrigger>
+                        <SelectContent>
+                          {labs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Input type="number" min="0" step="0.01" placeholder="Amount" value={entry.amount} onChange={(e) => updateLabEntry(i, 'amount', e.target.value)} className="w-24 h-9" />
+                      {labEntries.length > 1 && (
+                        <button type="button" onClick={() => removeLabEntry(i)}><Trash2 className="w-4 h-4 text-red-400 hover:text-red-600" /></button>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={addLabEntry} className="flex items-center gap-1 text-sm text-primary hover:underline">
+                    <Plus className="w-3.5 h-3.5" /> Add another lab
+                  </button>
+                  {totalLabFees > 0 && <p className="text-xs text-muted-foreground">Total: <strong>{formatCurrency(totalLabFees)}</strong></p>}
+                </div>
               )}
             </div>
           )}

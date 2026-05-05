@@ -1,24 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertCircle, Loader, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Loader, AlertTriangle, CheckCircle2, PenLine, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { getPatientById } from '@/services/patients';
-import { getTransactionsByDateRange, Transaction } from '@/services/transactions';
-import { Patient } from '@/services/patients';
+import { getPatientById, type Patient } from '@/services/patients';
+import { getTransactionsByDateRange, type Transaction } from '@/services/transactions';
+import { getAllBalancesForPatient, getBalanceEvents, type PatientBalanceFull, type BalanceEvent } from '@/services/patientBalance';
+import { getAllDoctors, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
-import { getAllDoctors, Doctor } from '@/services/doctors';
+
+interface DoctorBalance extends PatientBalanceFull {
+  events: BalanceEvent[];
+}
 
 export default function AdminPatientDetail() {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
 
-  const [patient, setPatient] = useState<Patient | null>(null);
+  const [patient, setPatient]       = useState<Patient | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [doctors, setDoctors]       = useState<Doctor[]>([]);
+  const [doctorBalances, setDoctorBalances] = useState<DoctorBalance[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
 
   useEffect(() => {
     if (!patientId) return;
@@ -26,22 +31,28 @@ export default function AdminPatientDetail() {
       try {
         setLoading(true);
         setError(null);
-
-        // Fetch all-time transactions by fetching a wide date range
         const from = new Date('2000-01-01');
-        const to = new Date();
-        to.setDate(to.getDate() + 1);
+        const to   = new Date(); to.setDate(to.getDate() + 1);
 
-        const [pat, allTx, docs] = await Promise.all([
+        const [pat, allTx, docs, balances] = await Promise.all([
           getPatientById(patientId),
           getTransactionsByDateRange(from, to),
           getAllDoctors(),
+          getAllBalancesForPatient(patientId),
         ]);
 
         setPatient(pat);
         setDoctors(docs);
-        // Filter to this patient's payment_in transactions
         setTransactions(allTx.filter((t) => t.patient_id === patientId && t.type === 'payment_in'));
+
+        // Load events for each doctor balance
+        const withEvents = await Promise.all(
+          balances.map(async (b) => {
+            const events = await getBalanceEvents(patientId, b.doctor_id).catch(() => []);
+            return { ...b, events };
+          })
+        );
+        setDoctorBalances(withEvents);
       } catch (err: any) {
         setError(err.message || 'Failed to load patient data');
       } finally {
@@ -52,9 +63,21 @@ export default function AdminPatientDetail() {
   }, [patientId]);
 
   const getDoctorName = (id: string | null) => doctors.find((d) => d.id === id)?.name || '—';
+  const totalRevenue  = transactions.reduce((s, t) => s + Number(t.final_amount), 0);
 
-  const totalRevenue = transactions.reduce((s, t) => s + Number(t.final_amount), 0);
-  const totalEarnings = transactions.reduce((s, t) => s + Number(t.doctor_earnings), 0);
+  const eventIcon = (type: BalanceEvent['event_type']) => {
+    if (type === 'balance_created') return <PenLine className="w-3.5 h-3.5 text-blue-500" />;
+    if (type === 'total_updated')   return <PenLine className="w-3.5 h-3.5 text-orange-500" />;
+    return <CreditCard className="w-3.5 h-3.5 text-green-600" />;
+  };
+
+  const eventLabel = (ev: BalanceEvent): string => {
+    if (ev.event_type === 'balance_created')
+      return `Balance created — Total: ${formatCurrency(ev.new_total ?? 0)}, Paid: ${formatCurrency(ev.payment_amount ?? 0)}`;
+    if (ev.event_type === 'total_updated')
+      return `Total updated: ${formatCurrency(ev.old_total ?? 0)} → ${formatCurrency(ev.new_total ?? 0)}`;
+    return `Payment of ${formatCurrency(ev.payment_amount ?? 0)}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -85,7 +108,7 @@ export default function AdminPatientDetail() {
         </div>
       ) : (
         <>
-          {/* Summary */}
+          {/* ── Summary cards ── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <Card>
               <CardContent className="pt-4 pb-4">
@@ -95,19 +118,90 @@ export default function AdminPatientDetail() {
             </Card>
             <Card>
               <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Total Revenue</p>
+                <p className="text-xs text-muted-foreground">Total Paid</p>
                 <p className="text-2xl font-bold mt-1">{formatCurrency(totalRevenue)}</p>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Total Dr. Earnings</p>
-                <p className="text-2xl font-bold text-primary mt-1">{formatCurrency(totalEarnings)}</p>
-              </CardContent>
-            </Card>
+            {doctorBalances.filter((b) => !b.is_settled).length > 0 && (
+              <Card className="border-amber-200 bg-amber-50">
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs text-amber-700">Outstanding</p>
+                  <p className="text-2xl font-bold text-amber-700 mt-1">
+                    {formatCurrency(doctorBalances.filter(b => !b.is_settled).reduce((s, b) => s + b.total_due - b.total_paid, 0))}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
-          {/* Transactions */}
+          {/* ── Balance timelines per doctor ── */}
+          {doctorBalances.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-base font-semibold">Payment Balance</h2>
+              {doctorBalances.map((b) => {
+                const remaining = b.total_due - b.total_paid;
+                return (
+                  <Card key={b.id} className={b.is_settled ? 'border-green-200' : 'border-amber-200'}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <CardTitle className="text-sm font-semibold">{b.doctor_name}</CardTitle>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <span>Total: <strong>{formatCurrency(b.total_due)}</strong></span>
+                            <span>Paid: <strong className="text-green-600">{formatCurrency(b.total_paid)}</strong></span>
+                            <span>Remaining: <strong className={remaining > 0 ? 'text-red-600' : 'text-green-600'}>{formatCurrency(remaining)}</strong></span>
+                          </div>
+                        </div>
+                        {b.is_settled ? (
+                          <Badge className="bg-green-100 text-green-700 border-green-200 flex-shrink-0">
+                            <CheckCircle2 className="w-3 h-3 mr-1" /> Settled
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 flex-shrink-0">
+                            <AlertTriangle className="w-3 h-3 mr-1" /> Outstanding
+                          </Badge>
+                        )}
+                      </div>
+                    </CardHeader>
+
+                    {/* Timeline */}
+                    {b.events.length > 0 && (
+                      <CardContent className="pt-0">
+                        <div className="border-t pt-3 space-y-0">
+                          {b.events.map((ev, idx) => (
+                            <div key={ev.id} className="flex gap-3">
+                              {/* Vertical line */}
+                              <div className="flex flex-col items-center">
+                                <div className="w-6 h-6 rounded-full bg-white border-2 border-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                                  {eventIcon(ev.event_type)}
+                                </div>
+                                {idx < b.events.length - 1 && <div className="w-0.5 bg-muted flex-1 my-1" />}
+                              </div>
+
+                              {/* Content */}
+                              <div className="pb-4 flex-1 min-w-0">
+                                <p className="text-sm font-medium leading-tight">{eventLabel(ev)}</p>
+                                <div className="flex items-center gap-3 mt-0.5">
+                                  <span className="text-xs text-muted-foreground">{formatDate(ev.created_at)}</span>
+                                  {ev.new_remaining !== null && (
+                                    <span className={`text-xs font-medium ${ev.new_remaining <= 0 ? 'text-green-600' : 'text-amber-700'}`}>
+                                      {ev.new_remaining <= 0 ? 'Fully paid ✓' : `Remaining: ${formatCurrency(ev.new_remaining)}`}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── All Transactions ── */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -117,10 +211,10 @@ export default function AdminPatientDetail() {
             </CardHeader>
             <CardContent className="p-0">
               {transactions.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">No transactions found for this patient.</div>
+                <div className="text-center py-12 text-muted-foreground">No transactions found.</div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="text-sm" style={{ minWidth: '850px', width: '100%' }}>
+                  <table className="text-sm" style={{ minWidth: '800px', width: '100%' }}>
                     <thead>
                       <tr className="border-b bg-muted/40">
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date / Time</th>
@@ -129,17 +223,13 @@ export default function AdminPatientDetail() {
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Base</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Final</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Dr. Earnings</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Recorded By</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
                       </tr>
                     </thead>
                     <tbody>
                       {transactions.map((tx) => (
-                        <tr
-                          key={tx.id}
-                          className={`border-b last:border-0 hover:bg-muted/20 ${tx.lab_fees_pending ? 'bg-amber-50' : ''}`}
-                        >
+                        <tr key={tx.id} className={`border-b last:border-0 hover:bg-muted/20 ${tx.lab_fees_pending ? 'bg-amber-50' : ''}`}>
                           <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
                             {formatDate(tx.created_at)}<br />
                             <span className="text-xs">{formatTime(tx.created_at)}</span>
@@ -151,16 +241,11 @@ export default function AdminPatientDetail() {
                           <td className="px-4 py-3 text-right whitespace-nowrap">
                             {tx.lab_fees_pending ? (
                               <span className="flex items-center justify-end gap-1 text-amber-600 text-xs">
-                                <AlertTriangle className="w-3 h-3 flex-shrink-0" /> Pending
+                                <AlertTriangle className="w-3 h-3" /> Pending
                               </span>
                             ) : tx.has_lab_fees ? formatCurrency(tx.lab_fees_amount) : '—'}
                           </td>
-                          <td className="px-4 py-3 text-right font-semibold text-primary whitespace-nowrap">
-                            {formatCurrency(tx.doctor_earnings)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">
-                            {tx.assistant_name}
-                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">{tx.assistant_name}</td>
                           <td className="px-4 py-3 text-muted-foreground" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {tx.expense_description || '—'}
                           </td>

@@ -5,24 +5,37 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
-import { searchPatients, getPatientById, getPatientTransactionsByDoctor, Patient, PatientTransaction } from '@/services/patients';
+import { searchPatients, getPatientById, getPatientTransactionsByDoctor, type Patient, type PatientTransaction } from '@/services/patients';
+import { getOutstandingBalancesByDoctor, type PatientBalanceFull } from '@/services/patientBalance';
 import { formatCurrency, formatDate, formatPaymentMethod } from '@/lib/utils';
 
 export default function DoctorPatients() {
   const { user } = useAuth();
   const location = useLocation();
 
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Patient[]>([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [transactions, setTransactions] = useState<PatientTransaction[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [txLoading, setTxLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [outstanding, setOutstanding]           = useState<PatientBalanceFull[]>([]);
+  const [outstandingLoading, setOutstandingLoading] = useState(true);
 
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery]                       = useState('');
+  const [results, setResults]                   = useState<Patient[]>([]);
+  const [showDropdown, setShowDropdown]         = useState(false);
+  const [selectedPatient, setSelectedPatient]   = useState<Patient | null>(null);
+  const [transactions, setTransactions]         = useState<PatientTransaction[]>([]);
+  const [searchLoading, setSearchLoading]       = useState(false);
+  const [txLoading, setTxLoading]               = useState(false);
+  const [error, setError]                       = useState<string | null>(null);
+
+  const dropdownRef   = useRef<HTMLDivElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+
+  // Load doctor's outstanding balances
+  useEffect(() => {
+    if (!user?.doctor_id) { setOutstandingLoading(false); return; }
+    getOutstandingBalancesByDoctor(user.doctor_id)
+      .then(setOutstanding)
+      .catch(() => {})
+      .finally(() => setOutstandingLoading(false));
+  }, [user?.doctor_id]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -105,12 +118,61 @@ export default function DoctorPatients() {
   const totalRevenue = transactions.reduce((s, t) => s + Number(t.final_amount), 0);
   const totalEarnings = transactions.reduce((s, t) => s + Number(t.doctor_earnings), 0);
 
+  const totalOutstanding = outstanding.reduce((s, b) => s + (b.total_due - b.total_paid), 0);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">My Patients</h1>
-        <p className="text-muted-foreground text-sm mt-1">Search for a patient to view their transaction history</p>
+        <p className="text-muted-foreground text-sm mt-1">Outstanding balances and patient search</p>
       </div>
+
+      {/* ── Outstanding Balances (doctor's patients only) ── */}
+      {(outstandingLoading || outstanding.length > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              Outstanding Balances
+              {!outstandingLoading && (
+                <Badge variant="outline" className="ml-auto text-amber-700 border-amber-300">
+                  {outstanding.length} patients · {formatCurrency(totalOutstanding)}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {outstandingLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader className="w-5 h-5 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="divide-y">
+                {outstanding.map((b) => {
+                  const remaining = b.total_due - b.total_paid;
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50/50 text-left"
+                      onClick={() => selectPatient({ id: b.patient_id, patient_code: b.patient_code, full_name: b.patient_name, created_at: '', updated_at: '' })}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{b.patient_name}</p>
+                        <p className="text-xs text-muted-foreground">{b.patient_code}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-semibold text-red-600">{formatCurrency(remaining)}</p>
+                        <p className="text-xs text-muted-foreground">of {formatCurrency(b.total_due)}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="relative" ref={dropdownRef}>
         <div className="relative">

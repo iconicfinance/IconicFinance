@@ -31,6 +31,8 @@ import AdminDoctors from "./pages/admin/Doctors";
 import AdminUsers from "./pages/admin/Users";
 import AdminMonthlyClosure from "./pages/admin/MonthlyClosure";
 import AdminPatientDetail from "./pages/admin/PatientDetail";
+import AdminLabConfig from "./pages/admin/LabConfig";
+import AdminPatients from "./pages/admin/AdminPatients";
 
 const queryClient = new QueryClient();
 
@@ -223,6 +225,30 @@ const App = () => (
                 <ProtectedRoute allowedRoles={["admin"]}>
                   <LayoutRoute>
                     <AdminPatientDetail />
+                  </LayoutRoute>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Admin Patients Overview */}
+            <Route
+              path="/admin/patients"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <LayoutRoute>
+                    <AdminPatients />
+                  </LayoutRoute>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Lab Config */}
+            <Route
+              path="/admin/lab-config"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <LayoutRoute>
+                    <AdminLabConfig />
                   </LayoutRoute>
                 </ProtectedRoute>
               }

@@ -14,6 +14,8 @@ import {
   Home,
   Search,
   Stethoscope,
+  FlaskConical,
+  UserCheck,
 } from 'lucide-react';
 
 interface NavItem {
@@ -67,7 +69,9 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
         { label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' },
         { label: 'Doctors', icon: Stethoscope, href: '/admin/doctors' },
         { label: 'Users', icon: User, href: '/admin/users' },
+        { label: 'Patients', icon: UserCheck, href: '/admin/patients' },
         { label: 'Monthly Closing', icon: CalendarCheck, href: '/admin/monthly-closing' },
+        { label: 'Lab Config', icon: FlaskConical, href: '/admin/lab-config' },
       ];
     }
 
@@ -99,9 +103,10 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
     if (user.role === 'admin') {
       return [
         { label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' },
-        { label: 'Doctors', icon: Stethoscope, href: '/admin/doctors' },
-        { label: 'Users', icon: User, href: '/admin/users' },
+        { label: 'Patients', icon: UserCheck, href: '/admin/patients' },
         { label: 'Closing', icon: CalendarCheck, href: '/admin/monthly-closing' },
+        { label: 'Labs', icon: FlaskConical, href: '/admin/lab-config' },
+        { label: 'Users', icon: User, href: '/admin/users' },
       ];
     }
 

@@ -22,6 +22,7 @@ import {
   Salary,
 } from '@/services/salaries';
 import { getTransactionsByDoctor } from '@/services/transactions';
+import { getLabFeesForMonth } from '@/services/transactionLabFees';
 import {
   formatCurrency,
   formatDate,
@@ -48,6 +49,9 @@ export default function AdminMonthlyClosure() {
   const [error, setError] = useState<string | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
 
+  // Lab fees per lab
+  const [labTotals, setLabTotals] = useState<{ lab_id: string; lab_name: string; total: number }[]>([]);
+
   // Salary state
   const [salaries, setSalaries] = useState<Salary[]>([]);
   const [newSalaryName, setNewSalaryName] = useState('');
@@ -60,14 +64,16 @@ export default function AdminMonthlyClosure() {
     try {
       setLoading(true);
       setError(null);
-      const [sumData, closingData, salaryData] = await Promise.all([
+      const [sumData, closingData, salaryData, labData] = await Promise.all([
         getMonthlySummary(year, month),
         getClosingsForMonth(year, month),
         getSalariesForMonth(year, month),
+        getLabFeesForMonth(year, month),
       ]);
       setSummary(sumData);
       setClosings(closingData);
       setSalaries(salaryData);
+      setLabTotals(labData);
 
       const states: Record<string, DoctorCardState> = {};
       sumData.forEach((row) => {
@@ -306,6 +312,31 @@ export default function AdminMonthlyClosure() {
               </Card>
             </div>
           </div>
+        )}
+
+        {/* ── Lab Fees by Lab ── */}
+        {!loading && labTotals.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                Lab Fees — {MONTH_NAMES[month - 1]} {year}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {labTotals.map((lt) => (
+                  <div key={lt.lab_id} className="flex items-center justify-between px-4 py-3">
+                    <span className="text-sm font-medium">{lt.lab_name}</span>
+                    <span className="font-semibold text-sm">{formatCurrency(lt.total)}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-4 py-3 bg-muted/40">
+                  <span className="text-sm font-semibold">Total</span>
+                  <span className="font-bold">{formatCurrency(labTotals.reduce((s, l) => s + l.total, 0))}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* ── Salary Management (admin only) ── */}
