@@ -1,81 +1,84 @@
-const CACHE_NAME = 'iconic-finance-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/client/global.css',
+const CACHE_NAME = 'iconic-finance-v2';
+
+// Only pre-cache static images that never change
+const STATIC_ASSETS = [
+  '/logos/iconic-finance.png',
+  '/logos/vodafone-cash.png',
+  '/logos/instapay.png',
+  '/favicon.ico',
 ];
 
-// Install event - cache app shell
+// ── Install: cache only static images ────────────────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(urlsToCache).catch(() => {
-        // Fail gracefully if some resources are not available
-      });
+      return cache.addAll(STATIC_ASSETS).catch(() => {});
     })
   );
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// ── Activate: delete all old caches ──────────────────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
+    caches.keys().then((names) =>
+      Promise.all(
+        names.map((name) => {
+          if (name !== CACHE_NAME) return caches.delete(name);
         })
-      );
-    })
+      )
+    )
   );
   self.clients.claim();
 });
 
-// Fetch event - cache first for static assets, network first for API calls
+// ── Fetch ─────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
-  if (request.method !== 'GET') {
-    return;
-  }
+  if (request.method !== 'GET') return;
+  if (!url.protocol.startsWith('http')) return;
 
-  // Network first for API calls
-  if (url.pathname.startsWith('/api/')) {
+  // API calls — never cache, always network
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Static images — cache first (they never change)
+  if (
+    url.pathname.startsWith('/logos/') ||
+    url.pathname === '/favicon.ico' ||
+    url.pathname === '/placeholder.svg'
+  ) {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          return caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, response.clone());
-            return response;
-          });
-        })
-        .catch(() => {
-          return caches.match(request);
-        })
+      caches.match(request).then(
+        (cached) =>
+          cached ||
+          fetch(request).then((res) => {
+            if (res.ok) {
+              const clone = res.clone();
+              caches.open(CACHE_NAME).then((c) => c.put(request, clone));
+            }
+            return res;
+          })
+      )
     );
     return;
   }
 
-  // Cache first for everything else
+  // Everything else (HTML, JS, CSS) — network first, cache only as offline fallback
   event.respondWith(
-    caches.match(request).then((response) => {
-      return (
-        response ||
-        fetch(request)
-          .then((response) => {
-            return caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, response.clone());
-              return response;
-            });
-          })
-          .catch(() => {
-            // Return a offline page if needed
-          })
-      );
-    })
+    fetch(request)
+      .then((res) => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(request, clone));
+        }
+        return res;
+      })
+      .catch(() =>
+        caches.match(request).then(
+          (cached) => cached || caches.match('/')
+        )
+      )
   );
 });

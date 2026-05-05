@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader, CheckCircle, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -112,7 +112,7 @@ export default function AssistantAddPayment() {
       ? Math.round(baseAmountNum * 1.01 * 100) / 100
       : baseAmountNum;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!user) return;
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import type { FC, ReactNode, ElementType } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -18,15 +18,15 @@ import {
 
 interface NavItem {
   label: string;
-  icon: React.ElementType;
+  icon: ElementType;
   href: string;
 }
 
 interface AppLayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
+export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { AlertCircle, Loader, Search, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
