@@ -1,29 +1,35 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { AlertCircle, Loader, AlertTriangle, TrendingUp, CreditCard, Receipt } from 'lucide-react';
+import { AlertCircle, Loader, AlertTriangle, TrendingUp, Banknote, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PaymentMethodIcon } from '@/components/PaymentMethodIcon';
-import { getTodayTransactions, Transaction } from '@/services/transactions';
+import { getTodayTransactions, type Transaction } from '@/services/transactions';
+import { getActiveDoctors, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatTime, formatPaymentMethod } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function AssistantToday() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [doctors, setDoctors]           = useState<Doctor[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await getTodayTransactions();
-      setTransactions(data);
+      const [txData, docData] = await Promise.allSettled([
+        getTodayTransactions(),
+        getActiveDoctors(),
+      ]);
+      if (txData.status === 'fulfilled')  setTransactions(txData.value);
+      if (docData.status === 'fulfilled') setDoctors(docData.value);
     } catch (err: any) {
       setError(err.message || 'Failed to load transactions');
     } finally {
@@ -31,10 +37,13 @@ export default function AssistantToday() {
     }
   };
 
-  const payments = transactions.filter((t) => t.type === 'payment_in');
-  const cash = payments.filter((t) => t.payment_method === 'cash').reduce((s, t) => s + Number(t.final_amount), 0);
-  const vodafone = payments.filter((t) => t.payment_method === 'vodafone_cash').reduce((s, t) => s + Number(t.final_amount), 0);
-  const instapay = payments.filter((t) => t.payment_method === 'instapay').reduce((s, t) => s + Number(t.final_amount), 0);
+  const getDoctorName = (id: string | null) =>
+    doctors.find((d) => d.id === id)?.name || '—';
+
+  const payments   = transactions.filter((tx) => tx.type === 'payment_in');
+  const cash       = payments.filter((tx) => tx.payment_method === 'cash').reduce((s, tx) => s + Number(tx.final_amount), 0);
+  const vodafone   = payments.filter((tx) => tx.payment_method === 'vodafone_cash').reduce((s, tx) => s + Number(tx.final_amount), 0);
+  const instapay   = payments.filter((tx) => tx.payment_method === 'instapay').reduce((s, tx) => s + Number(tx.final_amount), 0);
 
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -42,11 +51,11 @@ export default function AssistantToday() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Today's Transactions</h1>
+          <h1 className="text-2xl font-bold text-foreground">{t("Today's Transactions")}</h1>
           <p className="text-muted-foreground text-sm mt-1">{today}</p>
         </div>
         <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-          {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Refresh'}
+          {loading ? <Loader className="w-4 h-4 animate-spin" /> : t('Refresh')}
         </Button>
       </div>
 
@@ -63,10 +72,10 @@ export default function AssistantToday() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Cash</p>
+                <p className="text-sm font-medium text-muted-foreground">{t('Cash')}</p>
                 <p className="text-2xl font-bold mt-1">{formatCurrency(cash)}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {payments.filter((t) => t.payment_method === 'cash').length} transactions
+                  {payments.filter((tx) => tx.payment_method === 'cash').length} transactions
                 </p>
               </div>
               <PaymentMethodIcon method="cash" size={40} />
@@ -77,10 +86,10 @@ export default function AssistantToday() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Vodafone Cash</p>
+                <p className="text-sm font-medium text-muted-foreground">{t('Vodafone Cash')}</p>
                 <p className="text-2xl font-bold mt-1">{formatCurrency(vodafone)}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {payments.filter((t) => t.payment_method === 'vodafone_cash').length} transactions (incl. 1%)
+                  {payments.filter((tx) => tx.payment_method === 'vodafone_cash').length} transactions
                 </p>
               </div>
               <PaymentMethodIcon method="vodafone_cash" size={44} />
@@ -91,10 +100,10 @@ export default function AssistantToday() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Instapay</p>
+                <p className="text-sm font-medium text-muted-foreground">{t('Instapay')}</p>
                 <p className="text-2xl font-bold mt-1">{formatCurrency(instapay)}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {payments.filter((t) => t.payment_method === 'instapay').length} transactions
+                  {payments.filter((tx) => tx.payment_method === 'instapay').length} transactions
                 </p>
               </div>
               <PaymentMethodIcon method="instapay" size={44} />
@@ -108,32 +117,33 @@ export default function AssistantToday() {
         <CardHeader>
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
-            All Transactions
-            <Badge variant="secondary" className="ml-auto">{transactions.length}</Badge>
+            {t('All Transactions')}
+            <Badge variant="secondary" className="ms-auto">{transactions.length}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader className="w-6 h-6 animate-spin text-primary" />
-              <span className="ml-2 text-muted-foreground">Loading...</span>
+              <span className="ms-2 text-muted-foreground">{t('Loading...')}</span>
             </div>
           ) : transactions.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <p>No transactions recorded today yet.</p>
+              <p>{t('No transactions yet today.')}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="text-sm" style={{ minWidth: '650px', width: '100%' }}>
+              <table className="text-sm" style={{ minWidth: '750px', width: '100%' }}>
                 <thead>
                   <tr className="border-b bg-muted/40">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Time</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Type</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Patient</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Amount</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Time')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Type')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -147,13 +157,13 @@ export default function AssistantToday() {
                       <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{formatTime(tx.created_at)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {tx.type === 'payment_in' ? (
-                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Payment In</Badge>
+                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{t('Payment In')}</Badge>
                         ) : (
-                          <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Expense Out</Badge>
+                          <Badge className="bg-red-100 text-red-800 hover:bg-red-100">{t('Expense Out')}</Badge>
                         )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {tx.patient_id && tx.patient_name ? (
+                        {tx.patient_name ? (
                           <Link
                             to="/assistant/history"
                             state={{ patientName: tx.patient_name }}
@@ -165,18 +175,21 @@ export default function AssistantToday() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                        {tx.type === 'payment_in' ? getDoctorName(tx.doctor_id) : '—'}
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
                       <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {tx.type === 'payment_in' ? (
                           tx.lab_fees_pending ? (
                             <span className="flex items-center gap-1 text-amber-600 font-medium">
-                              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> Pending
+                              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {t('Pending')}
                             </span>
                           ) : tx.has_lab_fees ? (
                             <span className="text-green-600">{formatCurrency(tx.lab_fees_amount)}</span>
                           ) : (
-                            <span className="text-muted-foreground">None</span>
+                            <span className="text-muted-foreground">—</span>
                           )
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -194,38 +207,37 @@ export default function AssistantToday() {
         </CardContent>
       </Card>
 
-      {/* Action Buttons — mobile: circular FABs above bottom nav; desktop: text buttons inline */}
+      {/* Desktop buttons */}
       <div className="sm:flex sm:gap-3">
-        {/* Desktop buttons (hidden on mobile) */}
         <button
           onClick={() => navigate('/assistant/add-payment')}
           className="hidden sm:flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-white font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm"
         >
-          <CreditCard className="w-4 h-4" /> Add Payment
+          <Banknote className="w-4 h-4" /> {t('Add Payment')}
         </button>
         <button
           onClick={() => navigate('/assistant/add-expense')}
           className="hidden sm:flex items-center gap-2 px-5 py-2.5 rounded-lg bg-orange-500 text-white font-semibold text-sm hover:bg-orange-600 transition-colors shadow-sm"
         >
-          <Receipt className="w-4 h-4" /> Add Expense
+          <ShoppingBag className="w-4 h-4" /> {t('Add Expense')}
         </button>
       </div>
 
-      {/* Mobile FABs — fixed above bottom nav bar, side by side */}
-      <div className="sm:hidden fixed bottom-20 right-4 flex flex-row gap-3 z-40">
+      {/* Mobile FABs — Banknote (payment received) + ShoppingBag (expense paid) */}
+      <div className="sm:hidden fixed bottom-20 end-4 flex flex-row gap-3 z-40">
         <button
           onClick={() => navigate('/assistant/add-expense')}
           className="w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center shadow-lg transition-colors active:scale-95"
-          title="Add Expense"
+          title={t('Add Expense')}
         >
-          <Receipt className="w-6 h-6" />
+          <ShoppingBag className="w-6 h-6" />
         </button>
         <button
           onClick={() => navigate('/assistant/add-payment')}
           className="w-14 h-14 rounded-full bg-primary hover:bg-primary/90 text-white flex items-center justify-center shadow-lg transition-colors active:scale-95"
-          title="Add Payment"
+          title={t('Add Payment')}
         >
-          <CreditCard className="w-6 h-6" />
+          <Banknote className="w-6 h-6" />
         </button>
       </div>
     </div>

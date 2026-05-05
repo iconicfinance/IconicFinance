@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { getAllDoctors, createDoctor, updateDoctor, Doctor } from '@/services/doctors';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const EMPTY_FORM = {
   name: '',
@@ -29,6 +30,7 @@ const EMPTY_FORM = {
 };
 
 export default function AdminDoctors() {
+  const { t } = useLanguage();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +129,7 @@ export default function AdminDoctors() {
   };
 
   const doctorTypeLabel = (d: Doctor) => {
-    if (d.type === 'primary') return 'Primary';
+    if (d.type === 'primary') return t('Primary');
     if (d.type === 'extern') return 'Extern (40%)';
     return d.custom_label ? `Custom — ${d.custom_label}` : `Custom (${d.custom_percentage}%)`;
   };
@@ -136,11 +138,11 @@ export default function AdminDoctors() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Doctor Management</h1>
+          <h1 className="text-2xl font-bold">{t('Doctor Management')}</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage clinic doctor profiles</p>
         </div>
         <Button onClick={openAdd}>
-          <Plus className="w-4 h-4 mr-2" /> Add Doctor
+          <Plus className="w-4 h-4 mr-2" /> {t('Add Doctor')}
         </Button>
       </div>
 
@@ -154,7 +156,7 @@ export default function AdminDoctors() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            All Doctors
+            {t('All Doctors')}
             <Badge variant="secondary" className="ml-auto">{doctors.length}</Badge>
           </CardTitle>
         </CardHeader>
@@ -170,9 +172,9 @@ export default function AdminDoctors() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/40">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">{t('Name')}</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">{t('Status')}</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -183,9 +185,9 @@ export default function AdminDoctors() {
                       <td className="px-4 py-3 text-muted-foreground">{doctorTypeLabel(doc)}</td>
                       <td className="px-4 py-3">
                         {doc.is_active ? (
-                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>
+                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{t('Active')}</Badge>
                         ) : (
-                          <Badge variant="secondary">Inactive</Badge>
+                          <Badge variant="secondary">{t('Inactive')}</Badge>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -219,7 +221,7 @@ export default function AdminDoctors() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingDoctor ? 'Edit Doctor' : 'Add New Doctor'}</DialogTitle>
+            <DialogTitle>{editingDoctor ? t('Edit') + ' Doctor' : t('Add Doctor')}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
@@ -249,9 +251,9 @@ export default function AdminDoctors() {
                   <SelectValue placeholder="Select doctor type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="primary">Primary (clinic share)</SelectItem>
-                  <SelectItem value="extern">Extern (40% of net)</SelectItem>
-                  <SelectItem value="custom">Custom percentage</SelectItem>
+                  <SelectItem value="primary">{t('Primary')} (clinic share)</SelectItem>
+                  <SelectItem value="extern">{t('Extern')} (40% of net)</SelectItem>
+                  <SelectItem value="custom">{t('Custom')} percentage</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -283,10 +285,10 @@ export default function AdminDoctors() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('Cancel')}</Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? t('Saving...') : t('Save')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -9,6 +9,7 @@ import { getTransactionsByDateRange, type Transaction } from '@/services/transac
 import { getAllBalancesForPatient, getBalanceEvents, type PatientBalanceFull, type BalanceEvent } from '@/services/patientBalance';
 import { getAllDoctors, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface DoctorBalance extends PatientBalanceFull {
   events: BalanceEvent[];
@@ -17,6 +18,7 @@ interface DoctorBalance extends PatientBalanceFull {
 export default function AdminPatientDetail() {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   const [patient, setPatient]       = useState<Patient | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -83,10 +85,10 @@ export default function AdminPatientDetail() {
     <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="w-4 h-4 mr-1" /> Back
+          <ArrowLeft className="w-4 h-4 mr-1 icon-flip-rtl" /> {t('Back')}
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">Patient Detail</h1>
+          <h1 className="text-2xl font-bold">{t('Patient Detail')}</h1>
           {patient && (
             <p className="text-muted-foreground text-sm mt-0.5">
               {patient.full_name} · <span className="font-mono">{patient.patient_code}</span>
@@ -112,13 +114,13 @@ export default function AdminPatientDetail() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <Card>
               <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Total Visits</p>
+                <p className="text-xs text-muted-foreground">{t('Total Visits')}</p>
                 <p className="text-2xl font-bold mt-1">{transactions.length}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4 pb-4">
-                <p className="text-xs text-muted-foreground">Total Paid</p>
+                <p className="text-xs text-muted-foreground">{t('Total Paid')}</p>
                 <p className="text-2xl font-bold mt-1">{formatCurrency(totalRevenue)}</p>
               </CardContent>
             </Card>
@@ -137,7 +139,7 @@ export default function AdminPatientDetail() {
           {/* ── Balance timelines per doctor ── */}
           {doctorBalances.length > 0 && (
             <div className="space-y-4">
-              <h2 className="text-base font-semibold">Payment Balance</h2>
+              <h2 className="text-base font-semibold">{t('Payment Balance')}</h2>
               {doctorBalances.map((b) => {
                 const remaining = b.total_due - b.total_paid;
                 return (
@@ -149,7 +151,7 @@ export default function AdminPatientDetail() {
                           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                             <span>Total: <strong>{formatCurrency(b.total_due)}</strong></span>
                             <span>Paid: <strong className="text-green-600">{formatCurrency(b.total_paid)}</strong></span>
-                            <span>Remaining: <strong className={remaining > 0 ? 'text-red-600' : 'text-green-600'}>{formatCurrency(remaining)}</strong></span>
+                            <span>{t('Remaining')}: <strong className={remaining > 0 ? 'text-red-600' : 'text-green-600'}>{formatCurrency(remaining)}</strong></span>
                           </div>
                         </div>
                         {b.is_settled ? (
@@ -185,7 +187,7 @@ export default function AdminPatientDetail() {
                                   <span className="text-xs text-muted-foreground">{formatDate(ev.created_at)}</span>
                                   {ev.new_remaining !== null && (
                                     <span className={`text-xs font-medium ${ev.new_remaining <= 0 ? 'text-green-600' : 'text-amber-700'}`}>
-                                      {ev.new_remaining <= 0 ? 'Fully paid ✓' : `Remaining: ${formatCurrency(ev.new_remaining)}`}
+                                      {ev.new_remaining <= 0 ? t('Fully paid ✓') : `${t('Remaining')}: ${formatCurrency(ev.new_remaining)}`}
                                     </span>
                                   )}
                                 </div>
@@ -205,7 +207,7 @@ export default function AdminPatientDetail() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                All Transactions
+                {t('All Transactions')}
                 <Badge variant="secondary" className="ml-auto">{transactions.length}</Badge>
               </CardTitle>
             </CardHeader>
@@ -218,13 +220,13 @@ export default function AdminPatientDetail() {
                     <thead>
                       <tr className="border-b bg-muted/40">
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date / Time</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Doctor</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Base</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Final</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Recorded By</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Base')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Recorded By')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                       </tr>
                     </thead>
                     <tbody>

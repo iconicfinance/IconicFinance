@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader, AlertCircle, Search, X, Plus, Trash2 } from 'lucide-react';
+import { Loader, AlertCircle, Search, X, Plus, Trash2, AlertTriangle, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,14 +15,20 @@ import { getActiveDoctors, Doctor } from '@/services/doctors';
 import { getActiveLabs, Lab } from '@/services/labs';
 import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
 import { searchPatients, createPatient, Patient } from '@/services/patients';
+import {
+  getPatientBalance, upsertPatientBalance, updatePatientBalance,
+  logBalanceEvent, type PatientBalance,
+} from '@/services/patientBalance';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/utils';
+import { normalizeNumbers } from '@/lib/i18n';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface LabEntry { labId: string; amount: string; }
 
 interface Props {
   open: boolean;
-  defaultDate: string; // YYYY-MM-DD
+  defaultDate: string;
   onClose: () => void;
   onSaved: (tx: Transaction) => void;
 }
@@ -35,32 +41,48 @@ const toLocalDatetime = (dateStr: string) => {
 
 export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Props) {
   const { user } = useAuth();
-  const [type, setType] = useState<'payment_in' | 'expense_out'>('payment_in');
+  const { t } = useLanguage();
+
+  const [type, setType]         = useState<'payment_in' | 'expense_out'>('payment_in');
   const [dateTime, setDateTime] = useState('');
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [doctors, setDoctors]   = useState<Doctor[]>([]);
+  const [labs, setLabs]         = useState<Lab[]>([]);
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState('');
 
-  // Patient
+  // ── Patient ──────────────────────────────────────────────────────────────────
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [patientQuery, setPatientQuery] = useState('');
-  const [patientResults, setPatientResults] = useState<Patient[]>([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [creatingNew, setCreatingNew] = useState(false);
-  const [newPatientName, setNewPatientName] = useState('');
-  const [newPatientCode, setNewPatientCode] = useState('');
+  const [patientQuery, setPatientQuery]       = useState('');
+  const [patientResults, setPatientResults]   = useState<Patient[]>([]);
+  const [showDropdown, setShowDropdown]       = useState(false);
+  const [searchLoading, setSearchLoading]     = useState(false);
+  const [creatingNew, setCreatingNew]         = useState(false);
+  const [newPatientName, setNewPatientName]   = useState('');
+  const [newPatientCode, setNewPatientCode]   = useState('');
 
-  // Payment fields
+  // ── Doctor ────────────────────────────────────────────────────────────────────
   const [doctorId, setDoctorId] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('');
-  const [baseAmount, setBaseAmount] = useState('');
-  const [hasLabFees, setHasLabFees] = useState(false);
-  const [labEntries, setLabEntries] = useState<LabEntry[]>([{ labId: '', amount: '' }]);
-  const [description, setDescription] = useState('');
-  const [labs, setLabs] = useState<Lab[]>([]);
 
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  // ── Balance ───────────────────────────────────────────────────────────────────
+  const [balance, setBalance]             = useState<PatientBalance | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [editingTotal, setEditingTotal]   = useState(false);
+  const [newTotalValue, setNewTotalValue] = useState('');
+
+  // ── Payment amounts ───────────────────────────────────────────────────────────
+  const [totalClinical, setTotalClinical] = useState(''); // full treatment cost
+  const [payToday, setPayToday]           = useState(''); // amount paid today
+  const [paymentMethod, setPaymentMethod] = useState('');
+
+  // ── Lab fees ──────────────────────────────────────────────────────────────────
+  const [hasLabFees, setHasLabFees]   = useState(false);
+  const [labEntries, setLabEntries]   = useState<LabEntry[]>([{ labId: '', amount: '' }]);
+
+  // ── Expense fields ────────────────────────────────────────────────────────────
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [description, setDescription]    = useState('');
+
+  const dropdownRef   = useRef<HTMLDivElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -79,18 +101,23 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
   const resetForm = () => {
     setSelectedPatient(null); setPatientQuery(''); setPatientResults([]);
     setCreatingNew(false); setNewPatientName(''); setNewPatientCode('');
-    setDoctorId(''); setPaymentMethod(''); setBaseAmount('');
-    setHasLabFees(false); setLabEntries([{ labId: '', amount: '' }]); setDescription('');
+    setDoctorId(''); setPaymentMethod('');
+    setTotalClinical(''); setPayToday('');
+    setBalance(null); setEditingTotal(false); setNewTotalValue('');
+    setHasLabFees(false); setLabEntries([{ labId: '', amount: '' }]);
+    setDescription(''); setExpenseAmount('');
   };
 
+  // Close dropdown on outside click
   useEffect(() => {
-    const handleOut = (e: MouseEvent) => {
+    const h = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false);
     };
-    document.addEventListener('mousedown', handleOut);
-    return () => document.removeEventListener('mousedown', handleOut);
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  // Debounced patient search
   useEffect(() => {
     if (patientQuery.length < 2) { setPatientResults([]); setShowDropdown(false); return; }
     clearTimeout(searchTimeout.current);
@@ -102,72 +129,156 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
     }, 300);
   }, [patientQuery]);
 
+  // Load balance when patient + doctor selected
+  useEffect(() => {
+    if (!selectedPatient || !doctorId || type !== 'payment_in') { setBalance(null); return; }
+    setBalanceLoading(true);
+    getPatientBalance(selectedPatient.id, doctorId)
+      .then((b) => {
+        setBalance(b);
+        if (b && !b.is_settled) setNewTotalValue(String(b.total_due));
+      })
+      .catch(() => setBalance(null))
+      .finally(() => setBalanceLoading(false));
+  }, [selectedPatient?.id, doctorId, type]);
+
   if (!user) return null;
 
-  const baseNum = parseFloat(baseAmount) || 0;
-  const finalAmount = paymentMethod === 'vodafone_cash' ? Math.round(baseNum * 1.01 * 100) / 100 : baseNum;
-  const totalLabFees = labEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  // ── Computed values ───────────────────────────────────────────────────────────
+  const payTodayNum      = parseFloat(payToday) || 0;
+  const totalClinicalNum = parseFloat(totalClinical) || 0;
+  const expenseNum       = parseFloat(expenseAmount) || 0;
+  const totalLabFees     = labEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
 
+  const finalDueToday    = paymentMethod === 'vodafone_cash'
+    ? Math.round(payTodayNum * 1.01 * 100) / 100
+    : payTodayNum;
+  const vodafoneFee      = finalDueToday - payTodayNum;
+  const creditToBalance  = payTodayNum; // base amount credited, not the 1% fee
+
+  const activeBalance    = balance && !balance.is_settled ? balance : null;
+  const effectiveTotalDue = activeBalance
+    ? (parseFloat(newTotalValue) || activeBalance.total_due)
+    : totalClinicalNum;
+  const remaining        = activeBalance ? activeBalance.total_due - activeBalance.total_paid : 0;
+  const afterPayment     = Math.max(0, effectiveTotalDue - (activeBalance?.total_paid ?? 0) - creditToBalance);
+
+  // ── Lab helpers ───────────────────────────────────────────────────────────────
   const addLabEntry    = () => setLabEntries((p) => [...p, { labId: '', amount: '' }]);
   const removeLabEntry = (i: number) => setLabEntries((p) => p.filter((_, idx) => idx !== i));
-  const updateLabEntry = (i: number, field: keyof LabEntry, value: string) =>
-    setLabEntries((p) => p.map((e, idx) => idx === i ? { ...e, [field]: value } : e));
+  const updateLabEntry = (i: number, field: keyof LabEntry, val: string) =>
+    setLabEntries((p) => p.map((e, idx) => idx === i ? { ...e, [field]: val } : e));
 
+  // ── Save ──────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setError('');
     setSaving(true);
 
     const parsedDate = dateTime ? new Date(dateTime) : new Date();
-    const createdAt = isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+    const createdAt  = isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
 
     try {
       let saved: Transaction;
 
       if (type === 'payment_in') {
-        let patientId = selectedPatient?.id || '';
+        // Resolve patient
+        let patientId   = selectedPatient?.id || '';
         let patientName = selectedPatient?.full_name || '';
         if (creatingNew) {
-          if (!newPatientName.trim() || !newPatientCode.trim()) { setError('Patient name and code are required.'); setSaving(false); return; }
-          const p = await createPatient({ full_name: newPatientName.trim(), patient_code: newPatientCode.trim() });
+          if (!newPatientName.trim() || !newPatientCode.trim()) {
+            setError(t('Patient name and code are required.')); setSaving(false); return;
+          }
+          const p = await createPatient({
+            full_name: newPatientName.trim(),
+            patient_code: normalizeNumbers(newPatientCode.trim()),
+          });
           patientId = p.id; patientName = p.full_name;
         }
-        if (!patientId) { setError('Select or create a patient.'); setSaving(false); return; }
-        if (!doctorId) { setError('Select a doctor.'); setSaving(false); return; }
-        if (!paymentMethod) { setError('Select a payment method.'); setSaving(false); return; }
-        if (!baseAmount || baseNum <= 0) { setError('Enter a valid amount.'); setSaving(false); return; }
+        if (!patientId)      { setError(t('Please select or create a patient.')); setSaving(false); return; }
+        if (!doctorId)       { setError(t('Please select a doctor.'));             setSaving(false); return; }
+        if (!paymentMethod)  { setError(t('Please select a payment method.'));     setSaving(false); return; }
+        if (payTodayNum <= 0){ setError(t('Please enter a valid amount to pay.')); setSaving(false); return; }
 
-        const validLabEntries = hasLabFees
+        const validLabs = hasLabFees
           ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
           : [];
+
         saved = await createPaymentIn({
-          assistant_id: user.id,
+          assistant_id:   user.id,
           assistant_name: user.full_name,
-          patient_id: patientId,
-          patient_name: patientName,
-          doctor_id: doctorId,
+          patient_id:     patientId,
+          patient_name:   patientName,
+          doctor_id:      doctorId,
           payment_method: paymentMethod as any,
-          base_amount: baseNum,
-          final_amount: finalAmount,
-          has_lab_fees: hasLabFees && validLabEntries.length > 0,
-          lab_fees_amount: hasLabFees && validLabEntries.length > 0 ? totalLabFees : null,
+          base_amount:    payTodayNum,
+          final_amount:   finalDueToday,
+          has_lab_fees:   validLabs.length > 0,
+          lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
           expense_description: description.trim() || null,
           created_at: createdAt,
         });
-        if (validLabEntries.length > 0) {
+
+        if (validLabs.length > 0) {
           await saveLabFeesForTransaction(
             saved.id,
-            validLabEntries.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+            validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
           );
         }
+
+        // ── Balance tracking ────────────────────────────────────────────────────
+        if (activeBalance) {
+          const newTotalDue  = parseFloat(newTotalValue) || activeBalance.total_due;
+          const newTotalPaid = activeBalance.total_paid + creditToBalance;
+          const newRemaining = Math.max(0, newTotalDue - newTotalPaid);
+
+          if (newTotalDue !== activeBalance.total_due) {
+            logBalanceEvent({
+              patient_id: patientId, doctor_id: doctorId,
+              event_type: 'total_updated',
+              old_total: activeBalance.total_due, new_total: newTotalDue,
+              payment_amount: null, new_remaining: newTotalDue - activeBalance.total_paid,
+              transaction_id: null, notes: null,
+            });
+          }
+          logBalanceEvent({
+            patient_id: patientId, doctor_id: doctorId,
+            event_type: 'payment',
+            old_total: null, new_total: newTotalDue,
+            payment_amount: creditToBalance, new_remaining: newRemaining,
+            transaction_id: saved.id, notes: null,
+          });
+          await updatePatientBalance(activeBalance.id, {
+            total_due:  newTotalDue,
+            total_paid: Math.min(newTotalPaid, newTotalDue),
+            is_settled: newTotalPaid >= newTotalDue,
+          });
+        } else if (totalClinicalNum > 0) {
+          const newRemaining = Math.max(0, totalClinicalNum - creditToBalance);
+          logBalanceEvent({
+            patient_id: patientId, doctor_id: doctorId,
+            event_type: 'balance_created',
+            old_total: null, new_total: totalClinicalNum,
+            payment_amount: creditToBalance, new_remaining: newRemaining,
+            transaction_id: saved.id, notes: null,
+          });
+          await upsertPatientBalance({
+            patient_id: patientId, doctor_id: doctorId,
+            total_due:  totalClinicalNum,
+            total_paid: Math.min(creditToBalance, totalClinicalNum),
+            is_settled: creditToBalance >= totalClinicalNum,
+          });
+        }
+
       } else {
-        if (!description.trim()) { setError('Description is required.'); setSaving(false); return; }
-        if (!paymentMethod) { setError('Select a payment method.'); setSaving(false); return; }
-        if (!baseAmount || baseNum <= 0) { setError('Enter a valid amount.'); setSaving(false); return; }
+        // Expense out
+        if (!description.trim()) { setError(t('Description is required.')); setSaving(false); return; }
+        if (!paymentMethod)      { setError(t('Please select a payment method.')); setSaving(false); return; }
+        if (expenseNum <= 0)     { setError(t('Please enter a valid amount.')); setSaving(false); return; }
 
         saved = await createExpenseOut({
-          assistant_id: user.id,
+          assistant_id:   user.id,
           assistant_name: user.full_name,
-          final_amount: baseNum,
+          final_amount:   expenseNum,
           expense_description: description.trim(),
           payment_method: paymentMethod as any,
           created_at: createdAt,
@@ -176,7 +287,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
 
       onSaved(saved);
     } catch (err: any) {
-      setError(err.message || 'Failed to save transaction.');
+      setError(err.message || t('Failed to load'));
     } finally {
       setSaving(false);
     }
@@ -186,7 +297,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Transaction</DialogTitle>
+          <DialogTitle>{t('Add Transaction')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -199,53 +310,59 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
 
           {/* Date / Time */}
           <div className="space-y-1.5">
-            <Label>Date & Time *</Label>
-            <Input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} />
+            <Label>{t('Date & Time')} *</Label>
+            <Input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} dir="ltr" />
           </div>
 
           {/* Type */}
           <div className="space-y-1.5">
-            <Label>Type *</Label>
-            <Select value={type} onValueChange={(v) => { setType(v as any); resetForm(); }}>
+            <Label>{t('Type')} *</Label>
+            <Select value={type} onValueChange={(v) => { setType(v as any); resetForm(); setDateTime(toLocalDatetime(defaultDate)); }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="payment_in">Payment In</SelectItem>
-                <SelectItem value="expense_out">Expense Out</SelectItem>
+                <SelectItem value="payment_in">{t('Payment In')}</SelectItem>
+                <SelectItem value="expense_out">{t('Expense Out')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
+          {/* ── PAYMENT IN ─────────────────────────────────────────────────────── */}
           {type === 'payment_in' && (
             <>
               {/* Patient */}
               <div className="space-y-1.5">
-                <Label>Patient *</Label>
+                <Label>{t('Patient')} *</Label>
                 {selectedPatient ? (
                   <div className="flex items-center gap-2 p-2.5 border rounded-lg bg-green-50 border-green-200">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{selectedPatient.full_name}</p>
-                      <p className="text-xs text-muted-foreground">{selectedPatient.patient_code}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{selectedPatient.patient_code}</p>
                     </div>
-                    <button type="button" onClick={() => { setSelectedPatient(null); setPatientQuery(''); setCreatingNew(false); }}>
+                    <button type="button" onClick={() => { setSelectedPatient(null); setPatientQuery(''); setCreatingNew(false); setBalance(null); }}>
                       <X className="w-4 h-4 text-muted-foreground" />
                     </button>
                   </div>
                 ) : creatingNew ? (
                   <div className="space-y-2 p-3 border rounded-lg bg-blue-50 border-blue-200">
-                    <p className="text-sm font-medium text-blue-700">New Patient</p>
-                    <Input placeholder="Full name *" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} />
-                    <Input placeholder="Patient code (e.g. P-0042) *" value={newPatientCode} onChange={(e) => setNewPatientCode(e.target.value)} />
-                    <button type="button" onClick={() => setCreatingNew(false)} className="text-xs text-blue-600 underline">Cancel — search instead</button>
+                    <p className="text-sm font-medium text-blue-700">{t('New Patient')}</p>
+                    <Input placeholder={t('Full name *')} value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} />
+                    <Input placeholder={t('Patient Code (e.g. P-0042) *')} value={newPatientCode} onChange={(e) => setNewPatientCode(e.target.value)} dir="ltr" className="ltr-field" />
+                    <button type="button" onClick={() => setCreatingNew(false)} className="text-xs text-blue-600 underline">
+                      {t('Cancel — search instead')}
+                    </button>
                   </div>
                 ) : (
                   <div className="relative" ref={dropdownRef}>
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input placeholder="Search by name or code..." value={patientQuery}
+                      <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        placeholder={t('Search...')}
+                        value={patientQuery}
                         onChange={(e) => setPatientQuery(e.target.value)}
                         onFocus={() => patientResults.length > 0 && setShowDropdown(true)}
-                        className="pl-9" />
-                      {searchLoading && <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+                        className="ps-9"
+                      />
+                      {searchLoading && <Loader className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
                     </div>
                     {showDropdown && (
                       <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
@@ -253,12 +370,16 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
                           <button key={p.id} type="button" className="w-full text-left px-4 py-2.5 hover:bg-muted/50 border-b last:border-0"
                             onClick={() => { setSelectedPatient(p); setPatientQuery(p.full_name); setShowDropdown(false); }}>
                             <p className="font-medium text-sm">{p.full_name}</p>
-                            <p className="text-xs text-muted-foreground">{p.patient_code}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{p.patient_code}</p>
                           </button>
                         ))}
                         <button type="button" className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-blue-600 text-sm font-medium"
-                          onClick={() => { setCreatingNew(true); setShowDropdown(false); }}>
-                          + Create new patient
+                          onClick={() => {
+                            const q = patientQuery.trim();
+                            if (q) { /^\d+$/.test(q) ? setNewPatientCode(q) : setNewPatientName(q); }
+                            setCreatingNew(true); setShowDropdown(false);
+                          }}>
+                          + {t('Create new patient')}
                         </button>
                       </div>
                     )}
@@ -268,83 +389,205 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
 
               {/* Doctor */}
               <div className="space-y-1.5">
-                <Label>Doctor *</Label>
+                <Label>{t('Doctor')} *</Label>
                 <Select value={doctorId} onValueChange={setDoctorId}>
-                  <SelectTrigger><SelectValue placeholder="Select doctor" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('Select a doctor')} /></SelectTrigger>
                   <SelectContent>
-                    {doctors.map((d) => (<SelectItem key={d.id} value={d.id}>{d.name} ({d.type})</SelectItem>))}
+                    {doctors.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name} ({d.type === 'custom' ? d.custom_label || t('Custom') : d.type})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Outstanding balance alert */}
+              {balanceLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader className="w-4 h-4 animate-spin" /> {t('Checking balance...')}
+                </div>
+              )}
+
+              {!balanceLoading && activeBalance && (
+                <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-amber-800">{t('Outstanding Balance')}</p>
+                      <p className="text-xs text-amber-700 mt-0.5">
+                        {t('Remaining')}: <strong>{formatCurrency(remaining)}</strong>
+                        {' '}({t('Paid so far')} {formatCurrency(activeBalance.total_paid)} {t('of')} {formatCurrency(activeBalance.total_due)})
+                      </p>
+                    </div>
+                  </div>
+                  {editingTotal ? (
+                    <div className="flex items-center gap-2">
+                      <Input type="number" min="0" step="0.01" placeholder={t('Total Clinical')}
+                        value={newTotalValue} onChange={(e) => setNewTotalValue(e.target.value)}
+                        className="flex-1 h-8 text-sm" />
+                      <Button type="button" size="sm" variant="outline" onClick={() => setEditingTotal(false)}>
+                        {t('Done')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setEditingTotal(true)}
+                      className="flex items-center gap-1 text-xs text-amber-700 underline">
+                      <Pencil className="w-3 h-3" />
+                      {t('Change total')} ({formatCurrency(parseFloat(newTotalValue) || activeBalance.total_due)})
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Total Clinical — only when no active balance */}
+              {!balanceLoading && !activeBalance && (selectedPatient || creatingNew) && (
+                <div className="space-y-1.5">
+                  <Label>{t('Total Clinical (EGP)')}</Label>
+                  <Input type="number" min="0" step="0.01" placeholder="e.g. 3000"
+                    value={totalClinical} onChange={(e) => setTotalClinical(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">
+                    {t('Enter the full treatment cost. If patient pays less today, the difference is tracked as a remaining balance.')}
+                  </p>
+                </div>
+              )}
+
+              {/* Pay Today */}
+              <div className="space-y-1.5">
+                <Label>{t('Pay Today (EGP) *')}</Label>
+                <Input type="number" min="0" step="0.01" placeholder="0.00"
+                  value={payToday} onChange={(e) => setPayToday(e.target.value)} />
+              </div>
+
+              {/* Payment Method */}
+              <div className="space-y-1.5">
+                <Label>{t('Payment Method')} *</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger><SelectValue placeholder={t('Select payment method')} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">{t('Cash')}</SelectItem>
+                    <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
+                    <SelectItem value="instapay">{t('Instapay')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Total Due Today summary */}
+              {payTodayNum > 0 && paymentMethod && (
+                <div className="rounded-lg border bg-muted/40 px-4 py-3 space-y-1">
+                  {paymentMethod === 'vodafone_cash' ? (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{t('Pay Today')}</span>
+                        <span>{formatCurrency(payTodayNum)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{t('Vodafone fee (1%)')}</span>
+                        <span className="text-blue-600">+{formatCurrency(vodafoneFee)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-semibold border-t pt-1 mt-1">
+                        <span>{t('Total Due Today')}</span>
+                        <span className="text-primary">{formatCurrency(finalDueToday)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{t('1% fee is charged to patient, not deducted from their balance.')}</p>
+                    </>
+                  ) : (
+                    <div className="flex justify-between text-sm font-semibold">
+                      <span>{t('Total Due Today')}</span>
+                      <span className="text-primary">{formatCurrency(finalDueToday)}</span>
+                    </div>
+                  )}
+                  {(activeBalance || totalClinicalNum > 0) && (
+                    <div className="flex justify-between text-sm border-t pt-1 mt-1">
+                      <span className="text-muted-foreground">{t('Remaining after payment')}</span>
+                      <span className={afterPayment > 0 ? 'text-amber-600 font-semibold' : 'text-green-600 font-semibold'}>
+                        {afterPayment > 0 ? formatCurrency(afterPayment) : t('Fully paid ✓')}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Lab Fees */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox id="add-lab" checked={hasLabFees}
+                    onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabEntries([{ labId: '', amount: '' }]); }} />
+                  <Label htmlFor="add-lab" className="cursor-pointer">{t('Lab fees included?')}</Label>
+                </div>
+                {hasLabFees && (
+                  <div className="ps-6 space-y-2">
+                    {labEntries.map((entry, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Select value={entry.labId} onValueChange={(v) => updateLabEntry(i, 'labId', v)}>
+                          <SelectTrigger className="flex-1 h-9"><SelectValue placeholder={t('Select lab')} /></SelectTrigger>
+                          <SelectContent>
+                            {labs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Input type="number" min="0" step="0.01" placeholder={t('Amount')}
+                          value={entry.amount} onChange={(e) => updateLabEntry(i, 'amount', e.target.value)}
+                          className="w-24 h-9" />
+                        {labEntries.length > 1 && (
+                          <button type="button" onClick={() => removeLabEntry(i)}>
+                            <Trash2 className="w-4 h-4 text-red-400 hover:text-red-600" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button type="button" onClick={addLabEntry} className="flex items-center gap-1 text-sm text-primary hover:underline">
+                      <Plus className="w-3.5 h-3.5" /> {t('Add another lab')}
+                    </button>
+                    {totalLabFees > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {t('Total lab fees:')} <strong>{formatCurrency(totalLabFees)}</strong>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1.5">
+                <Label>{t('Notes (optional)')}</Label>
+                <Input placeholder={t('Any notes...')} value={description} onChange={(e) => setDescription(e.target.value)} />
               </div>
             </>
           )}
 
-          {/* Payment Method */}
-          <div className="space-y-1.5">
-            <Label>Payment Method *</Label>
-            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-              <SelectTrigger><SelectValue placeholder="Select method" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cash">Cash</SelectItem>
-                <SelectItem value="vodafone_cash">Vodafone Cash</SelectItem>
-                <SelectItem value="instapay">Instapay</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Amount */}
-          <div className="space-y-1.5">
-            <Label>{type === 'payment_in' ? 'Base Amount (EGP) *' : 'Amount (EGP) *'}</Label>
-            <Input type="number" min="0" step="0.01" placeholder="0.00" value={baseAmount} onChange={(e) => setBaseAmount(e.target.value)} />
-            {type === 'payment_in' && paymentMethod === 'vodafone_cash' && baseNum > 0 && (
-              <p className="text-sm text-blue-600 font-medium bg-blue-50 border border-blue-200 rounded px-3 py-1.5">Total + 1% = {formatCurrency(finalAmount)}</p>
-            )}
-          </div>
-
-          {/* Lab Fees (payment_in only) */}
-          {type === 'payment_in' && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Checkbox id="add-lab" checked={hasLabFees} onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabEntries([{ labId: '', amount: '' }]); }} />
-                <Label htmlFor="add-lab" className="cursor-pointer">Lab fees included?</Label>
+          {/* ── EXPENSE OUT ───────────────────────────────────────────────────── */}
+          {type === 'expense_out' && (
+            <>
+              <div className="space-y-1.5">
+                <Label>{t('Payment Method')} *</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger><SelectValue placeholder={t('Select payment method')} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">{t('Cash')}</SelectItem>
+                    <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
+                    <SelectItem value="instapay">{t('Instapay')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              {hasLabFees && (
-                <div className="pl-6 space-y-2">
-                  {labEntries.map((entry, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <Select value={entry.labId} onValueChange={(v) => updateLabEntry(i, 'labId', v)}>
-                        <SelectTrigger className="flex-1 h-9"><SelectValue placeholder="Select lab" /></SelectTrigger>
-                        <SelectContent>
-                          {labs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Input type="number" min="0" step="0.01" placeholder="Amount" value={entry.amount} onChange={(e) => updateLabEntry(i, 'amount', e.target.value)} className="w-24 h-9" />
-                      {labEntries.length > 1 && (
-                        <button type="button" onClick={() => removeLabEntry(i)}><Trash2 className="w-4 h-4 text-red-400 hover:text-red-600" /></button>
-                      )}
-                    </div>
-                  ))}
-                  <button type="button" onClick={addLabEntry} className="flex items-center gap-1 text-sm text-primary hover:underline">
-                    <Plus className="w-3.5 h-3.5" /> Add another lab
-                  </button>
-                  {totalLabFees > 0 && <p className="text-xs text-muted-foreground">Total: <strong>{formatCurrency(totalLabFees)}</strong></p>}
-                </div>
-              )}
-            </div>
+              <div className="space-y-1.5">
+                <Label>{t('Amount (EGP) *')}</Label>
+                <Input type="number" min="0" step="0.01" placeholder="0.00"
+                  value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t('Description *')}</Label>
+                <Input placeholder={t('What was this expense for?')}
+                  value={description} onChange={(e) => setDescription(e.target.value)} />
+              </div>
+            </>
           )}
-
-          {/* Description */}
-          <div className="space-y-1.5">
-            <Label>{type === 'expense_out' ? 'Description *' : 'Notes (optional)'}</Label>
-            <Input placeholder={type === 'expense_out' ? 'What was this expense for?' : 'Any notes...'} value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>{t('Cancel')}</Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-            {saving ? 'Saving...' : 'Add Transaction'}
+            {saving && <Loader className="w-4 h-4 me-2 animate-spin" />}
+            {saving ? t('Saving...') : t('Add Transaction')}
           </Button>
         </DialogFooter>
       </DialogContent>

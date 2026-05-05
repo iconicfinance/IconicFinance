@@ -23,12 +23,15 @@ import {
   type PatientBalance,
 } from '@/services/patientBalance';
 import { formatCurrency } from '@/lib/utils';
+import { normalizeNumbers } from '@/lib/i18n';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface LabEntry { labId: string; amount: string; }
 
 export default function AssistantAddPayment() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const successRoute =
     user?.role === 'admin' ? '/admin/dashboard'
@@ -72,6 +75,7 @@ export default function AssistantAddPayment() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError]             = useState('');
   const [success, setSuccess]         = useState(false);
+  const [successMsg, setSuccessMsg]   = useState('');
 
   const dropdownRef   = useRef<HTMLDivElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
@@ -190,47 +194,72 @@ export default function AssistantAddPayment() {
         if (!newName.trim() || !newCode.trim()) {
           setError('Patient name and code are required.'); setLoading(false); return;
         }
-        const p = await createPatient({ full_name: newName.trim(), patient_code: newCode.trim() });
+        const normalizedCode = normalizeNumbers(newCode.trim());
+        const p = await createPatient({ full_name: newName.trim(), patient_code: normalizedCode });
         patientId = p.id; patientName = p.full_name;
       }
 
-      if (!patientId)        { setError('Please select or create a patient.');  setLoading(false); return; }
-      if (!selectedDoctorId) { setError('Please select a doctor.');              setLoading(false); return; }
-      if (!paymentMethod)    { setError('Please select a payment method.');      setLoading(false); return; }
-      if (payTodayNum <= 0)  { setError('Please enter a valid amount to pay.');  setLoading(false); return; }
+      if (!patientId)        { setError(t('Please select or create a patient.')); setLoading(false); return; }
+      if (!selectedDoctorId) { setError(t('Please select a doctor.'));             setLoading(false); return; }
+
+      // Determine what we're doing
+      const isRecordingPayment = payTodayNum > 0;
+      const isSettingNewBalance = !activeBalance && totalClinicalNum > 0;
+      const isUpdatingTotal = activeBalance &&
+        (parseFloat(newTotalValue) || activeBalance.total_due) !== activeBalance.total_due;
+
+      // Need at least one of: payment, new balance, or total update
+      if (!isRecordingPayment && !isSettingNewBalance && !isUpdatingTotal) {
+        setError(
+          activeBalance
+            ? t('Please enter a payment amount or change the total.')
+            : t('Please enter a payment amount or set a total clinical amount.')
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Payment method only required when actually collecting money
+      if (isRecordingPayment && !paymentMethod) {
+        setError(t('Please select a payment method.')); setLoading(false); return;
+      }
 
       const validLabs = hasLabFees
         ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
         : [];
 
-      const tx = await createPaymentIn({
-        assistant_id: user.id,
-        assistant_name: user.full_name,
-        patient_id: patientId,
-        patient_name: patientName,
-        doctor_id: selectedDoctorId,
-        payment_method: paymentMethod,
-        base_amount: payTodayNum,
-        final_amount: finalDueToday,
-        has_lab_fees: validLabs.length > 0,
-        lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
-        expense_description: description.trim() || null,
-      });
+      // ── Create transaction only when paying > 0 ───────────────────────────
+      let txId: string | null = null;
+      if (isRecordingPayment) {
+        const tx = await createPaymentIn({
+          assistant_id: user.id,
+          assistant_name: user.full_name,
+          patient_id: patientId,
+          patient_name: patientName,
+          doctor_id: selectedDoctorId,
+          payment_method: paymentMethod as any,
+          base_amount: payTodayNum,
+          final_amount: finalDueToday,
+          has_lab_fees: validLabs.length > 0,
+          lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
+          expense_description: description.trim() || null,
+        });
+        txId = tx.id;
 
-      if (validLabs.length > 0) {
-        await saveLabFeesForTransaction(
-          tx.id,
-          validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
-        );
+        if (validLabs.length > 0) {
+          await saveLabFeesForTransaction(
+            txId,
+            validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+          );
+        }
       }
 
-      // ── Balance tracking ──────────────────────────────────────────────────
+      // ── Balance tracking (works with any payTodayNum including 0) ─────────
       if (activeBalance) {
         const newTotalDue  = parseFloat(newTotalValue) || activeBalance.total_due;
         const newTotalPaid = activeBalance.total_paid + creditToBalance;
         const newRemaining = Math.max(0, newTotalDue - newTotalPaid);
 
-        // Log total change if it changed
         if (newTotalDue !== activeBalance.total_due) {
           logBalanceEvent({
             patient_id: patientId, doctor_id: selectedDoctorId,
@@ -241,31 +270,31 @@ export default function AssistantAddPayment() {
             transaction_id: null, notes: null,
           });
         }
-        // Log payment
-        logBalanceEvent({
-          patient_id: patientId, doctor_id: selectedDoctorId,
-          event_type: 'payment',
-          old_total: null, new_total: newTotalDue,
-          payment_amount: creditToBalance, new_remaining: newRemaining,
-          transaction_id: tx.id, notes: null,
-        });
-
+        if (isRecordingPayment) {
+          logBalanceEvent({
+            patient_id: patientId, doctor_id: selectedDoctorId,
+            event_type: 'payment',
+            old_total: null, new_total: newTotalDue,
+            payment_amount: creditToBalance, new_remaining: newRemaining,
+            transaction_id: txId, notes: null,
+          });
+        }
         await updatePatientBalance(activeBalance.id, {
           total_due:  newTotalDue,
           total_paid: Math.min(newTotalPaid, newTotalDue),
           is_settled: newTotalPaid >= newTotalDue,
         });
       } else if (totalClinicalNum > 0) {
+        // New balance — may have paid 0 or more today
         const newRemaining = Math.max(0, totalClinicalNum - creditToBalance);
-        // Log balance creation + initial payment
         logBalanceEvent({
           patient_id: patientId, doctor_id: selectedDoctorId,
           event_type: 'balance_created',
           old_total: null, new_total: totalClinicalNum,
-          payment_amount: creditToBalance, new_remaining: newRemaining,
-          transaction_id: tx.id, notes: null,
+          payment_amount: creditToBalance,
+          new_remaining: newRemaining,
+          transaction_id: txId, notes: null,
         });
-
         await upsertPatientBalance({
           patient_id: patientId, doctor_id: selectedDoctorId,
           total_due:  totalClinicalNum,
@@ -274,6 +303,7 @@ export default function AssistantAddPayment() {
         });
       }
 
+      setSuccessMsg(isRecordingPayment ? t('Payment Recorded!') : t('Balance Recorded!'));
       setSuccess(true);
       setTimeout(() => navigate(successRoute), 1500);
     } catch (err: any) {
@@ -287,8 +317,8 @@ export default function AssistantAddPayment() {
     return (
       <div className="max-w-lg mx-auto flex flex-col items-center justify-center py-20 gap-4">
         <CheckCircle className="w-16 h-16 text-green-500" />
-        <h2 className="text-xl font-semibold">Payment Recorded!</h2>
-        <p className="text-muted-foreground">Redirecting...</p>
+        <h2 className="text-xl font-semibold">{successMsg}</h2>
+        <p className="text-muted-foreground">{t('Redirecting...')}</p>
       </div>
     );
   }
@@ -296,7 +326,7 @@ export default function AssistantAddPayment() {
   return (
     <div className="max-w-lg mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Add Payment</h1>
+        <h1 className="text-2xl font-bold">{t('Add Payment')}</h1>
         <p className="text-muted-foreground text-sm mt-1">Record a new patient payment</p>
       </div>
 
@@ -313,7 +343,7 @@ export default function AssistantAddPayment() {
 
             {/* ── Patient ── */}
             <div className="space-y-2">
-              <Label>Patient *</Label>
+              <Label>{t('Patient')} *</Label>
               {selectedPatient ? (
                 <div className="flex items-center gap-2 p-3 border rounded-lg bg-green-50 border-green-200">
                   <div className="flex-1">
@@ -326,25 +356,30 @@ export default function AssistantAddPayment() {
                 </div>
               ) : creatingNew ? (
                 <div className="space-y-3 p-3 border rounded-lg bg-blue-50 border-blue-200">
-                  <p className="text-sm font-medium text-blue-700">New Patient</p>
+                  <p className="text-sm font-medium text-blue-700">{t('New Patient')}</p>
                   <Input placeholder="Full name *" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                  <Input placeholder="Patient code (e.g. P-0042) *" value={newCode} onChange={(e) => setNewCode(e.target.value)} />
+                  <Input
+                    placeholder={t('Patient Code (e.g. P-0042)')}
+                    value={newCode}
+                    onChange={(e) => setNewCode(e.target.value)}
+                    dir="ltr"
+                  />
                   <button type="button" onClick={clearPatient} className="text-xs text-blue-600 underline">
-                    Cancel — search instead
+                    {t('Cancel — search instead')}
                   </button>
                 </div>
               ) : (
                 <div className="relative" ref={dropdownRef}>
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search by name or code..."
+                      placeholder={t('Search...')}
                       value={patientQuery}
                       onChange={(e) => setPatientQuery(e.target.value)}
                       onFocus={() => patientResults.length > 0 && setShowDropdown(true)}
-                      className="pl-9"
+                      className="ps-9"
                     />
-                    {searchLoading && <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+                    {searchLoading && <Loader className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
                   </div>
                   {showDropdown && (
                     <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-56 overflow-y-auto">
@@ -355,13 +390,13 @@ export default function AssistantAddPayment() {
                         </button>
                       ))}
                       <button type="button" className="w-full text-left px-4 py-3 hover:bg-blue-50 text-blue-600 text-sm font-medium" onClick={startNewPatient}>
-                        + Create new patient
+                        + {t('Create new patient')}
                       </button>
                     </div>
                   )}
                   {patientQuery.length >= 2 && !searchLoading && !showDropdown && patientResults.length === 0 && (
                     <button type="button" className="text-sm text-blue-600 underline mt-2" onClick={startNewPatient}>
-                      No results — create new patient
+                      {t('No results — create new patient')}
                     </button>
                   )}
                 </div>
@@ -370,7 +405,7 @@ export default function AssistantAddPayment() {
 
             {/* ── Doctor ── */}
             <div className="space-y-2">
-              <Label>Doctor *</Label>
+              <Label>{t('Doctor')} *</Label>
               <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
                 <SelectTrigger><SelectValue placeholder="Select a doctor" /></SelectTrigger>
                 <SelectContent>
@@ -384,16 +419,16 @@ export default function AssistantAddPayment() {
             </div>
 
             {/* ── Outstanding balance alert ── */}
-            {balanceLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader className="w-4 h-4 animate-spin" /> Checking balance...</div>}
+            {balanceLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader className="w-4 h-4 animate-spin" /> {t('Checking balance...')}</div>}
 
             {!balanceLoading && activeBalance && (
               <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-amber-800">Outstanding Balance</p>
+                    <p className="text-sm font-semibold text-amber-800">{t('Outstanding Balance')}</p>
                     <p className="text-xs text-amber-700 mt-0.5">
-                      Remaining: <strong>{formatCurrency(remaining)}</strong>
+                      {t('Remaining')}: <strong>{formatCurrency(remaining)}</strong>
                       {' '}(Paid {formatCurrency(activeBalance.total_paid)} of {formatCurrency(activeBalance.total_due)})
                     </p>
                   </div>
@@ -420,7 +455,7 @@ export default function AssistantAddPayment() {
             {/* ── Total Clinical (only when no active balance) ── */}
             {!balanceLoading && !activeBalance && (selectedPatient || creatingNew) && (
               <div className="space-y-1.5">
-                <Label>Total Clinical (EGP)</Label>
+                <Label>{t('Total Clinical (EGP)')}</Label>
                 <Input
                   type="number" min="0" step="0.01" placeholder="e.g. 3000"
                   value={totalClinical}
@@ -434,7 +469,10 @@ export default function AssistantAddPayment() {
 
             {/* ── Pay Today ── */}
             <div className="space-y-1.5">
-              <Label>Pay Today (EGP) *</Label>
+              <Label>
+                {t('Pay Today (EGP)')}
+                <span className="text-muted-foreground text-xs ms-1">({t('Leave 0 if not paying today')})</span>
+              </Label>
               <Input
                 type="number" min="0" step="0.01" placeholder="0.00"
                 value={payToday}
@@ -442,18 +480,29 @@ export default function AssistantAddPayment() {
               />
             </div>
 
-            {/* ── Payment Method ── */}
+            {/* Zero-payment info note */}
+            {payTodayNum === 0 && (totalClinicalNum > 0 || activeBalance) && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+                {activeBalance
+                  ? t('No payment today — balance total will be updated if changed.')
+                  : t('No payment today — balance of') + ' ' + formatCurrency(totalClinicalNum) + ' ' + t('will be recorded as outstanding.')}
+              </div>
+            )}
+
+            {/* ── Payment Method (only required when paying > 0) ── */}
+            {payTodayNum > 0 && (
             <div className="space-y-1.5">
-              <Label>Payment Method *</Label>
+              <Label>{t('Payment Method')} *</Label>
               <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as any)}>
-                <SelectTrigger><SelectValue placeholder="Select payment method" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t('Select payment method')} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="vodafone_cash">Vodafone Cash</SelectItem>
-                  <SelectItem value="instapay">Instapay</SelectItem>
+                  <SelectItem value="cash">{t('Cash')}</SelectItem>
+                  <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
+                  <SelectItem value="instapay">{t('Instapay')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            )}
 
             {/* ── Total Due Today (computed summary) ── */}
             {payTodayNum > 0 && paymentMethod && (
@@ -469,14 +518,14 @@ export default function AssistantAddPayment() {
                       <span className="text-blue-600">+{formatCurrency(vodafoneFee)}</span>
                     </div>
                     <div className="flex justify-between text-sm font-semibold border-t pt-1 mt-1">
-                      <span>Total Due Today</span>
+                      <span>{t('Total Due Today')}</span>
                       <span className="text-primary">{formatCurrency(finalDueToday)}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">1% fee is charged to patient, not deducted from their balance.</p>
                   </>
                 ) : (
                   <div className="flex justify-between text-sm font-semibold">
-                    <span>Total Due Today</span>
+                    <span>{t('Total Due Today')}</span>
                     <span className="text-primary">{formatCurrency(finalDueToday)}</span>
                   </div>
                 )}
@@ -484,9 +533,9 @@ export default function AssistantAddPayment() {
                 {/* Remaining after payment */}
                 {(activeBalance || totalClinicalNum > 0) && (
                   <div className="flex justify-between text-sm border-t pt-1 mt-1">
-                    <span className="text-muted-foreground">Remaining after payment</span>
+                    <span className="text-muted-foreground">{t('Remaining after payment')}</span>
                     <span className={afterPayment > 0 ? 'text-amber-600 font-semibold' : 'text-green-600 font-semibold'}>
-                      {afterPayment > 0 ? formatCurrency(afterPayment) : 'Fully paid ✓'}
+                      {afterPayment > 0 ? formatCurrency(afterPayment) : t('Fully paid ✓')}
                     </span>
                   </div>
                 )}
@@ -501,14 +550,14 @@ export default function AssistantAddPayment() {
                   checked={hasLabFees}
                   onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabEntries([{ labId: '', amount: '' }]); }}
                 />
-                <Label htmlFor="lab-fees" className="cursor-pointer">Lab fees included?</Label>
+                <Label htmlFor="lab-fees" className="cursor-pointer">{t('Lab fees included?')}</Label>
               </div>
               {hasLabFees && (
                 <div className="pl-6 space-y-2">
                   {labEntries.map((entry, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <Select value={entry.labId} onValueChange={(v) => updateLabEntry(i, 'labId', v)}>
-                        <SelectTrigger className="flex-1 h-9"><SelectValue placeholder="Select lab" /></SelectTrigger>
+                        <SelectTrigger className="flex-1 h-9"><SelectValue placeholder={t('Select lab')} /></SelectTrigger>
                         <SelectContent>
                           {labs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
                         </SelectContent>
@@ -520,7 +569,7 @@ export default function AssistantAddPayment() {
                     </div>
                   ))}
                   <button type="button" onClick={addLabEntry} className="flex items-center gap-1 text-sm text-primary hover:underline">
-                    <Plus className="w-3.5 h-3.5" /> Add another lab
+                    <Plus className="w-3.5 h-3.5" /> {t('Add another lab')}
                   </button>
                   {totalLabFees > 0 && <p className="text-xs text-muted-foreground">Total lab fees: <strong>{formatCurrency(totalLabFees)}</strong></p>}
                 </div>
@@ -529,15 +578,15 @@ export default function AssistantAddPayment() {
 
             {/* ── Description ── */}
             <div className="space-y-1.5">
-              <Label htmlFor="description">Notes (optional)</Label>
+              <Label htmlFor="description">{t('Notes (optional)')}</Label>
               <Input id="description" placeholder="Any notes about this visit..." value={description} onChange={(e) => setDescription(e.target.value)} />
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => navigate(successRoute)} className="flex-1">Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => navigate(successRoute)} className="flex-1">{t('Cancel')}</Button>
               <Button type="submit" disabled={loading} className="flex-1">
                 {loading && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-                {loading ? 'Saving...' : 'Confirm Payment'}
+                {loading ? t('Saving...') : t('Confirm Payment')}
               </Button>
             </div>
           </form>

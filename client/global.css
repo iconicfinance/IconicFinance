@@ -119,6 +119,45 @@
   }
 }
 
+/* ── Arabic / RTL overrides ─────────────────────────────────────────────────── */
+@import url("https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap");
+
+/* Use Cairo (Arabic-friendly) font in RTL mode */
+[dir="rtl"] body {
+  font-family: 'Cairo', 'Inter', sans-serif;
+}
+
+/* Number/amount inputs: always LTR so digits read left-to-right */
+[dir="rtl"] input[type="number"],
+[dir="rtl"] input[type="tel"] {
+  direction: ltr;
+  text-align: right;
+}
+
+/* Patient codes, usernames, passwords — always LTR regardless of language */
+[dir="rtl"] input.ltr-field {
+  direction: ltr;
+  text-align: left;
+}
+
+/* Name inputs — allow Arabic text (follow document direction = RTL) */
+/* No override needed; inputs inherit dir from the document automatically */
+
+/* Monospace text (patient codes displayed in tables etc.) */
+[dir="rtl"] .font-mono {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
+/* Search input icon: RTL flips padding/icon side automatically via Tailwind's
+   logical utilities (ps-*, pe-*, start-*, end-*).
+   Tables and flex rows re-order correctly via dir="rtl" on <html>. */
+
+/* Flip Back/Forward arrow icons in RTL */
+[dir="rtl"] .icon-flip-rtl {
+  transform: scaleX(-1);
+}
+
 @media print {
   header,
   aside,

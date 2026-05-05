@@ -6,8 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { searchPatients, getPatientTransactions, type Patient, type PatientTransaction } from '@/services/patients';
 import { getAllOutstandingBalances, type PatientBalanceFull } from '@/services/patientBalance';
 import { formatCurrency, formatDate, formatPaymentMethod } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function AssistantPatients() {
+  const { t } = useLanguage();
   const [outstanding, setOutstanding]       = useState<PatientBalanceFull[]>([]);
   const [outstandingLoading, setOutstandingLoading] = useState(true);
 
@@ -73,7 +75,7 @@ export default function AssistantPatients() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Patients</h1>
+        <h1 className="text-2xl font-bold">{t('Patients')}</h1>
         <p className="text-muted-foreground text-sm mt-1">Outstanding balances and patient search</p>
       </div>
 
@@ -83,7 +85,7 @@ export default function AssistantPatients() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-500" />
-              Outstanding Balances
+              {t('Outstanding Balances')}
               {!outstandingLoading && (
                 <Badge variant="outline" className="ml-auto text-amber-700 border-amber-300">
                   {outstanding.length} patients · {formatCurrency(totalOutstanding)}
@@ -112,7 +114,7 @@ export default function AssistantPatients() {
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className="text-sm font-semibold text-red-600">{formatCurrency(remaining)}</p>
-                        <p className="text-xs text-muted-foreground">remaining</p>
+                        <p className="text-xs text-muted-foreground">{t('Remaining')}</p>
                       </div>
                     </div>
                   );
@@ -126,15 +128,15 @@ export default function AssistantPatients() {
       {/* ── Patient Search ── */}
       <div className="relative" ref={dropdownRef}>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search patient by name or code..."
+            placeholder={t('Search...')}
             value={query}
             onChange={(e) => { setQuery(e.target.value); if (selectedPatient) clearSelection(); }}
             onFocus={() => results.length > 0 && setShowDropdown(true)}
-            className="pl-9"
+            className="ps-9"
           />
-          {searchLoading && <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+          {searchLoading && <Loader className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
         </div>
         {showDropdown && results.length > 0 && (
           <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-56 overflow-y-auto">
@@ -147,7 +149,7 @@ export default function AssistantPatients() {
           </div>
         )}
         {query.length >= 2 && !searchLoading && results.length === 0 && !showDropdown && (
-          <p className="text-sm text-muted-foreground mt-2">No patients found.</p>
+          <p className="text-sm text-muted-foreground mt-2">{t('No patients found.')}</p>
         )}
       </div>
 
@@ -168,7 +170,7 @@ export default function AssistantPatients() {
             </div>
             {!txLoading && transactions.length > 0 && (
               <div className="ml-auto text-right">
-                <p className="text-xs text-muted-foreground">Total Paid</p>
+                <p className="text-xs text-muted-foreground">{t('Total Paid')}</p>
                 <p className="font-semibold">{formatCurrency(totalRevenue)}</p>
               </div>
             )}
@@ -177,7 +179,7 @@ export default function AssistantPatients() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                Payment History
+                {t('Payment History')}
                 {!txLoading && <Badge variant="secondary" className="ml-auto">{transactions.length}</Badge>}
               </CardTitle>
             </CardHeader>
@@ -191,11 +193,11 @@ export default function AssistantPatients() {
                   <table className="text-sm" style={{ minWidth: '550px', width: '100%' }}>
                     <thead>
                       <tr className="border-b bg-muted/40">
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Date')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Amount</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -224,7 +226,7 @@ export default function AssistantPatients() {
       {!selectedPatient && !query && outstanding.length === 0 && !outstandingLoading && (
         <div className="text-center py-12 text-muted-foreground">
           <Search className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>Search for a patient above to view their history.</p>
+          <p>{t('Search for a patient above to view their history.')}</p>
         </div>
       )}
     </div>

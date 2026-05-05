@@ -1,6 +1,7 @@
 import type { FC, ReactNode, ElementType } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import {
   LogOut,
   LayoutDashboard,
@@ -30,6 +31,7 @@ interface AppLayoutProps {
 
 export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
+  const { t, lang, setLang } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -47,31 +49,31 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
 
     if (user.role === 'assistant') {
       return [
-        { label: 'Today', icon: Home, href: '/assistant/today' },
-        { label: 'Add Payment', icon: CreditCard, href: '/assistant/add-payment' },
-        { label: 'Add Expense', icon: Receipt, href: '/assistant/add-expense' },
-        { label: 'History', icon: History, href: '/assistant/history' },
-        { label: 'Patients', icon: Search, href: '/assistant/patients' },
+        { label: t('Today'), icon: Home, href: '/assistant/today' },
+        { label: t('Add Payment'), icon: CreditCard, href: '/assistant/add-payment' },
+        { label: t('Add Expense'), icon: Receipt, href: '/assistant/add-expense' },
+        { label: t('History'), icon: History, href: '/assistant/history' },
+        { label: t('Patients'), icon: Search, href: '/assistant/patients' },
       ];
     }
 
     if (user.role === 'doctor') {
       return [
-        { label: 'Dashboard', icon: LayoutDashboard, href: '/doctor/dashboard' },
-        { label: 'Patients', icon: Users, href: '/doctor/patients' },
-        { label: 'Add Payment', icon: CreditCard, href: '/add-payment' },
-        { label: 'Add Expense', icon: Receipt, href: '/add-expense' },
+        { label: t('Dashboard'), icon: LayoutDashboard, href: '/doctor/dashboard' },
+        { label: t('Patients'), icon: Users, href: '/doctor/patients' },
+        { label: t('Add Payment'), icon: CreditCard, href: '/add-payment' },
+        { label: t('Add Expense'), icon: Receipt, href: '/add-expense' },
       ];
     }
 
     if (user.role === 'admin') {
       return [
-        { label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' },
-        { label: 'Doctors', icon: Stethoscope, href: '/admin/doctors' },
-        { label: 'Users', icon: User, href: '/admin/users' },
-        { label: 'Patients', icon: UserCheck, href: '/admin/patients' },
-        { label: 'Monthly Closing', icon: CalendarCheck, href: '/admin/monthly-closing' },
-        { label: 'Lab Config', icon: FlaskConical, href: '/admin/lab-config' },
+        { label: t('Dashboard'), icon: LayoutDashboard, href: '/admin/dashboard' },
+        { label: t('Doctors'), icon: Stethoscope, href: '/admin/doctors' },
+        { label: t('Users'), icon: User, href: '/admin/users' },
+        { label: t('Patients'), icon: UserCheck, href: '/admin/patients' },
+        { label: t('Monthly Closing'), icon: CalendarCheck, href: '/admin/monthly-closing' },
+        { label: t('Lab Config'), icon: FlaskConical, href: '/admin/lab-config' },
       ];
     }
 
@@ -83,30 +85,30 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
 
     if (user.role === 'assistant') {
       return [
-        { label: 'Today', icon: Home, href: '/assistant/today' },
-        { label: 'Payment', icon: CreditCard, href: '/assistant/add-payment' },
-        { label: 'Expense', icon: Receipt, href: '/assistant/add-expense' },
-        { label: 'History', icon: History, href: '/assistant/history' },
-        { label: 'Patients', icon: Search, href: '/assistant/patients' },
+        { label: t('Today'), icon: Home, href: '/assistant/today' },
+        { label: t('Payment'), icon: CreditCard, href: '/assistant/add-payment' },
+        { label: t('Expense'), icon: Receipt, href: '/assistant/add-expense' },
+        { label: t('History'), icon: History, href: '/assistant/history' },
+        { label: t('Patients'), icon: Search, href: '/assistant/patients' },
       ];
     }
 
     if (user.role === 'doctor') {
       return [
-        { label: 'Dashboard', icon: LayoutDashboard, href: '/doctor/dashboard' },
-        { label: 'Patients', icon: Users, href: '/doctor/patients' },
-        { label: 'Payment', icon: CreditCard, href: '/add-payment' },
-        { label: 'Expense', icon: Receipt, href: '/add-expense' },
+        { label: t('Dashboard'), icon: LayoutDashboard, href: '/doctor/dashboard' },
+        { label: t('Patients'), icon: Users, href: '/doctor/patients' },
+        { label: t('Payment'), icon: CreditCard, href: '/add-payment' },
+        { label: t('Expense'), icon: Receipt, href: '/add-expense' },
       ];
     }
 
     if (user.role === 'admin') {
       return [
-        { label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' },
-        { label: 'Patients', icon: UserCheck, href: '/admin/patients' },
-        { label: 'Closing', icon: CalendarCheck, href: '/admin/monthly-closing' },
-        { label: 'Labs', icon: FlaskConical, href: '/admin/lab-config' },
-        { label: 'Users', icon: User, href: '/admin/users' },
+        { label: t('Dashboard'), icon: LayoutDashboard, href: '/admin/dashboard' },
+        { label: t('Patients'), icon: UserCheck, href: '/admin/patients' },
+        { label: t('Closing'), icon: CalendarCheck, href: '/admin/monthly-closing' },
+        { label: t('Labs'), icon: FlaskConical, href: '/admin/lab-config' },
+        { label: t('Users'), icon: User, href: '/admin/users' },
       ];
     }
 
@@ -140,16 +142,24 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
             <span className="font-bold text-base text-primary">Iconic Finance</span>
           </Link>
 
-          {/* User + Logout */}
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:block text-right">
+          {/* User + Language Toggle + Logout */}
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:block text-right rtl:text-left">
               <p className="text-sm font-medium text-foreground leading-tight">{user?.full_name}</p>
-              <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+              <p className="text-xs text-muted-foreground capitalize">{t(user?.role || '')}</p>
             </div>
+            {/* Language toggle */}
+            <button
+              onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}
+              className="px-2.5 py-1 text-xs font-semibold border border-border rounded-md hover:bg-muted transition-colors"
+              title={lang === 'en' ? 'Switch to Arabic' : 'Switch to English'}
+            >
+              {lang === 'en' ? 'ع' : 'EN'}
+            </button>
             <button
               onClick={handleLogout}
               className="p-2 hover:bg-muted rounded-lg transition-colors"
-              title="Logout"
+              title={t('Logout')}
             >
               <LogOut className="w-5 h-5 text-muted-foreground" />
             </button>

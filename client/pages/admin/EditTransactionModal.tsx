@@ -14,6 +14,7 @@ import { Transaction, updateTransaction } from '@/services/transactions';
 import { getAllDoctors, Doctor } from '@/services/doctors';
 import { searchPatients, Patient } from '@/services/patients';
 import { formatCurrency } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Props {
   transaction: Transaction | null;
@@ -28,16 +29,15 @@ const toLocalDatetime = (iso: string) => {
 };
 
 export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Props) {
+  const { t } = useLanguage();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Common fields
   const [dateTime, setDateTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [description, setDescription] = useState('');
 
-  // Payment-in fields
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [patientQuery, setPatientQuery] = useState('');
   const [patientResults, setPatientResults] = useState<Patient[]>([]);
@@ -103,9 +103,9 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
       };
 
       if (tx.type === 'payment_in') {
-        if (!selectedPatient) { setError('Patient is required.'); setSaving(false); return; }
-        if (!doctorId) { setError('Doctor is required.'); setSaving(false); return; }
-        if (!baseAmount || baseNum <= 0) { setError('Amount is required.'); setSaving(false); return; }
+        if (!selectedPatient) { setError(t('Patient') + ' ' + t('is required.')); setSaving(false); return; }
+        if (!doctorId) { setError(t('Doctor') + ' ' + t('is required.')); setSaving(false); return; }
+        if (!baseAmount || baseNum <= 0) { setError(t('Please enter a valid amount.')); setSaving(false); return; }
         updates.patient_id = selectedPatient.id;
         updates.patient_name = selectedPatient.full_name;
         updates.doctor_id = doctorId;
@@ -114,7 +114,7 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
         updates.has_lab_fees = hasLabFees;
         updates.lab_fees_amount = hasLabFees && labFeesAmount ? parseFloat(labFeesAmount) : null;
       } else {
-        if (!description.trim()) { setError('Description is required.'); setSaving(false); return; }
+        if (!description.trim()) { setError(t('Description is required.')); setSaving(false); return; }
         updates.final_amount = baseNum;
         updates.base_amount = baseNum;
       }
@@ -122,7 +122,7 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
       const updated = await updateTransaction(tx.id, updates);
       onSaved(updated);
     } catch (err: any) {
-      setError(err.message || 'Failed to save changes.');
+      setError(err.message || t('Failed to load'));
     } finally {
       setSaving(false);
     }
@@ -133,9 +133,9 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Edit Transaction —{' '}
+            {t('Edit Transaction')} —{' '}
             <span className={tx.type === 'payment_in' ? 'text-green-600' : 'text-red-500'}>
-              {tx.type === 'payment_in' ? 'Payment In' : 'Expense Out'}
+              {tx.type === 'payment_in' ? t('Payment In') : t('Expense Out')}
             </span>
           </DialogTitle>
         </DialogHeader>
@@ -150,20 +150,22 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
 
           {/* Date / Time */}
           <div className="space-y-1.5">
-            <Label>Date & Time</Label>
-            <Input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} />
+            <Label>{t('Date & Time')}</Label>
+            <Input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} dir="ltr" />
           </div>
 
           {tx.type === 'payment_in' && (
             <>
               {/* Patient */}
               <div className="space-y-1.5">
-                <Label>Patient *</Label>
+                <Label>{t('Patient')} *</Label>
                 {selectedPatient ? (
                   <div className="flex items-center gap-2 p-2.5 border rounded-lg bg-green-50 border-green-200">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{selectedPatient.full_name}</p>
-                      {selectedPatient.patient_code && <p className="text-xs text-muted-foreground">{selectedPatient.patient_code}</p>}
+                      {selectedPatient.patient_code && (
+                        <p className="text-xs text-muted-foreground font-mono">{selectedPatient.patient_code}</p>
+                      )}
                     </div>
                     <button type="button" onClick={() => { setSelectedPatient(null); setPatientQuery(''); }}>
                       <X className="w-4 h-4 text-muted-foreground" />
@@ -172,15 +174,15 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
                 ) : (
                   <div className="relative" ref={dropdownRef}>
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
-                        placeholder="Search patient..."
+                        placeholder={t('Search...')}
                         value={patientQuery}
                         onChange={(e) => setPatientQuery(e.target.value)}
                         onFocus={() => patientResults.length > 0 && setShowDropdown(true)}
-                        className="pl-9"
+                        className="ps-9"
                       />
-                      {searchLoading && <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+                      {searchLoading && <Loader className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
                     </div>
                     {showDropdown && (
                       <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
@@ -189,7 +191,7 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
                             className="w-full text-left px-4 py-2.5 hover:bg-muted/50 border-b last:border-0"
                             onClick={() => { setSelectedPatient(p); setPatientQuery(p.full_name); setShowDropdown(false); }}>
                             <p className="font-medium text-sm">{p.full_name}</p>
-                            <p className="text-xs text-muted-foreground">{p.patient_code}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{p.patient_code}</p>
                           </button>
                         ))}
                       </div>
@@ -200,9 +202,9 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
 
               {/* Doctor */}
               <div className="space-y-1.5">
-                <Label>Doctor *</Label>
+                <Label>{t('Doctor')} *</Label>
                 <Select value={doctorId} onValueChange={setDoctorId}>
-                  <SelectTrigger><SelectValue placeholder="Select doctor" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('Select doctor')} /></SelectTrigger>
                   <SelectContent>
                     {doctors.map((d) => (
                       <SelectItem key={d.id} value={d.id}>{d.name} ({d.type})</SelectItem>
@@ -215,51 +217,57 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
 
           {/* Payment Method */}
           <div className="space-y-1.5">
-            <Label>Payment Method</Label>
+            <Label>{t('Payment Method')}</Label>
             <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-              <SelectTrigger><SelectValue placeholder="Select method" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={t('Select method')} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="cash">Cash</SelectItem>
-                <SelectItem value="vodafone_cash">Vodafone Cash</SelectItem>
-                <SelectItem value="instapay">Instapay</SelectItem>
+                <SelectItem value="cash">{t('Cash')}</SelectItem>
+                <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
+                <SelectItem value="instapay">{t('Instapay')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Amount */}
           <div className="space-y-1.5">
-            <Label>{tx.type === 'payment_in' ? 'Base Amount (EGP) *' : 'Amount (EGP) *'}</Label>
+            <Label>{tx.type === 'payment_in' ? t('Base Amount (EGP) *') : t('Amount (EGP) *')}</Label>
             <Input type="number" min="0" step="0.01" placeholder="0.00" value={baseAmount} onChange={(e) => setBaseAmount(e.target.value)} />
             {tx.type === 'payment_in' && paymentMethod === 'vodafone_cash' && baseNum > 0 && (
-              <p className="text-sm text-blue-600 font-medium">Total + 1% = {formatCurrency(finalAmount)}</p>
+              <p className="text-sm text-blue-600 font-medium">
+                {t('Total Due Today')}: {formatCurrency(finalAmount)}
+              </p>
             )}
           </div>
 
-          {/* Lab Fees (payment_in only) */}
+          {/* Lab Fees */}
           {tx.type === 'payment_in' && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Checkbox id="edit-lab" checked={hasLabFees} onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabFeesAmount(''); }} />
-                <Label htmlFor="edit-lab" className="cursor-pointer">Lab fees included?</Label>
+                <Label htmlFor="edit-lab" className="cursor-pointer">{t('Lab fees included?')}</Label>
               </div>
               {hasLabFees && (
-                <Input type="number" min="0" step="0.01" placeholder="Lab fees amount (leave blank if unknown)" value={labFeesAmount} onChange={(e) => setLabFeesAmount(e.target.value)} />
+                <Input type="number" min="0" step="0.01" placeholder={t('Lab fees amount')} value={labFeesAmount} onChange={(e) => setLabFeesAmount(e.target.value)} />
               )}
             </div>
           )}
 
-          {/* Description */}
+          {/* Description / Notes */}
           <div className="space-y-1.5">
-            <Label>{tx.type === 'expense_out' ? 'Description *' : 'Notes (optional)'}</Label>
-            <Input placeholder={tx.type === 'expense_out' ? 'What was this expense for?' : 'Any notes...'} value={description} onChange={(e) => setDescription(e.target.value)} />
+            <Label>{tx.type === 'expense_out' ? t('Description *') : t('Notes (optional)')}</Label>
+            <Input
+              placeholder={tx.type === 'expense_out' ? t('What was this expense for?') : t('Any notes...')}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>{t('Cancel')}</Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving && <Loader className="w-4 h-4 me-2 animate-spin" />}
+            {saving ? t('Saving...') : t('Save Changes')}
           </Button>
         </DialogFooter>
       </DialogContent>

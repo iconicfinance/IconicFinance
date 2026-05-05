@@ -30,11 +30,12 @@ import {
   formatDate,
   formatTime,
   formatPaymentMethod,
-  MONTH_NAMES,
 } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const now = new Date();
   const [fromDate, setFromDate] = useState(() => {
     const d = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -135,15 +136,15 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+          <h1 className="text-2xl font-bold">{t('Dashboard')}</h1>
           <p className="text-muted-foreground text-sm mt-1">Financial overview</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" onClick={() => setAddModalOpen(true)}>
-            <CalendarPlus className="w-4 h-4 mr-1.5" /> Add Transaction
+            <CalendarPlus className="w-4 h-4 mr-1.5" /> {t('Add Transaction')}
           </Button>
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-            {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Refresh'}
+            {loading ? <Loader className="w-4 h-4 animate-spin" /> : t('Refresh')}
           </Button>
         </div>
       </div>
@@ -171,7 +172,7 @@ export default function AdminDashboard() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Doctor</Label>
+              <Label className="text-xs">{t('Doctor')}</Label>
               <Select value={doctorFilter} onValueChange={setDoctorFilter}>
                 <SelectTrigger className="w-44">
                   <SelectValue />
@@ -185,16 +186,16 @@ export default function AdminDashboard() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Method</Label>
+              <Label className="text-xs">{t('Method')}</Label>
               <Select value={methodFilter} onValueChange={setMethodFilter}>
                 <SelectTrigger className="w-44">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Methods</SelectItem>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="vodafone_cash">Vodafone Cash</SelectItem>
-                  <SelectItem value="instapay">Instapay</SelectItem>
+                  <SelectItem value="cash">{t('Cash')}</SelectItem>
+                  <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
+                  <SelectItem value="instapay">{t('Instapay')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -213,11 +214,11 @@ export default function AdminDashboard() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <Card className="border-green-200 bg-green-50">
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-green-700">Total Revenue</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-green-700">{t('Total Revenue')}</CardTitle></CardHeader>
           <CardContent><p className="text-xl font-bold text-green-800">{formatCurrency(totalRevenue)}</p></CardContent>
         </Card>
         <Card className="border-red-200 bg-red-50">
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-red-700">Total Expenses</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-red-700">{t('Total Expenses')}</CardTitle></CardHeader>
           <CardContent><p className="text-xl font-bold text-red-800">{formatCurrency(totalExpenses)}</p></CardContent>
         </Card>
         <Card className={`border-primary/20 ${netIncome >= 0 ? 'bg-primary/5' : 'bg-red-50'}`}>
@@ -232,7 +233,7 @@ export default function AdminDashboard() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Cash</p>
+                <p className="text-sm text-muted-foreground">{t('Cash')}</p>
                 <p className="text-xl font-bold mt-1">{formatCurrency(cashTotal)}</p>
               </div>
               <PaymentMethodIcon method="cash" size={36} />
@@ -243,7 +244,7 @@ export default function AdminDashboard() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Vodafone Cash</p>
+                <p className="text-sm text-muted-foreground">{t('Vodafone Cash')}</p>
                 <p className="text-xl font-bold mt-1">{formatCurrency(vodafoneTotal)}</p>
               </div>
               <PaymentMethodIcon method="vodafone_cash" size={40} />
@@ -254,7 +255,7 @@ export default function AdminDashboard() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Instapay</p>
+                <p className="text-sm text-muted-foreground">{t('Instapay')}</p>
                 <p className="text-xl font-bold mt-1">{formatCurrency(instapayTotal)}</p>
               </div>
               <PaymentMethodIcon method="instapay" size={40} />
@@ -262,7 +263,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Lab Fees Collected</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t('Lab Fees')}</CardTitle></CardHeader>
           <CardContent>
             <p className="text-xl font-bold">{formatCurrency(labFeesTotal)}</p>
             {pendingCount > 0 && (
@@ -278,7 +279,7 @@ export default function AdminDashboard() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            All Transactions
+            {t('All Transactions')}
             <Badge variant="secondary" className="ml-auto">{filtered.length}</Badge>
             {pendingCount > 0 && (
               <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
@@ -301,15 +302,15 @@ export default function AdminDashboard() {
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date / Time</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Type</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Patient</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Doctor</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Base</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Final</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Base')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Dr. Earnings</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Recorded By</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Recorded By')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground whitespace-nowrap"></th>
                   </tr>
                 </thead>
@@ -399,9 +400,9 @@ export default function AdminDashboard() {
           {labFeeModal && (
             <div className="space-y-4 py-2">
               <div className="text-sm space-y-1">
-                <p><span className="text-muted-foreground">Patient:</span> {labFeeModal.patient_name}</p>
+                <p><span className="text-muted-foreground">{t('Patient')}:</span> {labFeeModal.patient_name}</p>
                 <p><span className="text-muted-foreground">Final Amount:</span> {formatCurrency(labFeeModal.final_amount)}</p>
-                <p><span className="text-muted-foreground">Date:</span> {formatDate(labFeeModal.created_at)}</p>
+                <p><span className="text-muted-foreground">{t('Date')}:</span> {formatDate(labFeeModal.created_at)}</p>
               </div>
               {labFeeError && (
                 <div className="bg-red-50 border border-red-200 rounded p-2 text-sm text-red-600">
@@ -409,7 +410,7 @@ export default function AdminDashboard() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label>Lab Fees Amount (EGP) *</Label>
+                <Label>{t('Lab Fees')} Amount (EGP) *</Label>
                 <Input
                   type="number"
                   min="0"
@@ -423,10 +424,10 @@ export default function AdminDashboard() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setLabFeeModal(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setLabFeeModal(null)}>{t('Cancel')}</Button>
             <Button onClick={saveLabFee} disabled={savingLabFee}>
               {savingLabFee && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-              {savingLabFee ? 'Saving...' : 'Save Lab Fees'}
+              {savingLabFee ? t('Saving...') : t('Save')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/lib/supabase';
+import { normalizeNumbers } from '@/lib/i18n';
 
 export interface Patient {
   id: string;
@@ -30,10 +31,12 @@ export interface PatientTransaction {
 
 export const searchPatients = async (query: string): Promise<Patient[]> => {
   const supabase = getSupabaseClient();
+  // Normalize Arabic/Hindi digits so searching "٢٠" finds "20" in the DB
+  const q = normalizeNumbers(query.trim());
   const { data, error } = await supabase
     .from('patients')
     .select('*')
-    .or(`patient_code.ilike.%${query}%,full_name.ilike.%${query}%`)
+    .or(`patient_code.ilike.%${q}%,full_name.ilike.%${q}%`)
     .order('full_name')
     .limit(50);
 

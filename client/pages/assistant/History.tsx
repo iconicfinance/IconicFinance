@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { AlertCircle, Loader, Search, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getTransactionsByDateRange, Transaction } from '@/services/transactions';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function AssistantHistory() {
   const location = useLocation();
+  const { t } = useLanguage();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export default function AssistantHistory() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Transaction History</h1>
+        <h1 className="text-2xl font-bold">{t('Transaction History')}</h1>
         <p className="text-muted-foreground text-sm mt-1">Last 30 days — read only</p>
       </div>
 
@@ -54,19 +56,19 @@ export default function AssistantHistory() {
       )}
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search by patient name or description..."
+          placeholder={t('Search...')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
+          className="ps-9"
         />
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            All Transactions
+            {t('All Transactions')}
             <Badge variant="secondary" className="ml-auto">{filtered.length}</Badge>
           </CardTitle>
         </CardHeader>
@@ -74,7 +76,7 @@ export default function AssistantHistory() {
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader className="w-6 h-6 animate-spin text-primary" />
-              <span className="ml-2 text-muted-foreground">Loading...</span>
+              <span className="ml-2 text-muted-foreground">{t('Loading...')}</span>
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
@@ -85,14 +87,14 @@ export default function AssistantHistory() {
               <table className="text-sm" style={{ minWidth: '700px', width: '100%' }}>
                 <thead>
                   <tr className="border-b bg-muted/40">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Date')}</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Time</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Type</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Patient</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Amount</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                   </tr>
                 </thead>
                 <tbody>

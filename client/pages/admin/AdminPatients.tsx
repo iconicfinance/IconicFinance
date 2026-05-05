@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { searchPatients, type Patient } from '@/services/patients';
 import { getAllOutstandingBalances, getBalancesForPatientIds, type PatientBalanceFull, type PatientBalance } from '@/services/patientBalance';
 import { formatCurrency } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface PatientWithBalance extends Patient {
   balance?: PatientBalance & { doctor_name: string };
@@ -14,6 +15,7 @@ interface PatientWithBalance extends Patient {
 
 export default function AdminPatients() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [outstanding, setOutstanding]     = useState<PatientBalanceFull[]>([]);
   const [searchResults, setSearchResults] = useState<PatientWithBalance[]>([]);
   const [loadingInit, setLoadingInit]     = useState(true);
@@ -54,7 +56,7 @@ export default function AdminPatients() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Patients</h1>
+        <h1 className="text-2xl font-bold">{t('Patients')}</h1>
         <p className="text-muted-foreground text-sm mt-1">Search all patients or view outstanding balances</p>
       </div>
 
@@ -67,15 +69,15 @@ export default function AdminPatients() {
 
       {/* Search — searches ALL patients */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search all patients by name or code..."
+          placeholder={t('Search...')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="pl-9"
+          className="ps-9"
         />
         {searchLoading && (
-          <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+          <Loader className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
         )}
       </div>
 
@@ -84,7 +86,7 @@ export default function AdminPatients() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              Search Results
+              {t('Search Results')}
               {searchResults.length > 0 && (
                 <Badge variant="secondary" className="ml-2">{searchResults.length}</Badge>
               )}
@@ -92,7 +94,7 @@ export default function AdminPatients() {
           </CardHeader>
           <CardContent className="p-0">
             {searchResults.length === 0 && !searchLoading ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No patients found.</p>
+              <p className="text-sm text-muted-foreground text-center py-8">{t('No patients found.')}</p>
             ) : (
               <div className="divide-y">
                 {searchResults.map((p) => {
@@ -138,7 +140,7 @@ export default function AdminPatients() {
             </Card>
             <Card>
               <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">Total Outstanding</p>
+                <p className="text-xs text-muted-foreground">{t('Total Outstanding')}</p>
                 <p className="text-2xl font-bold text-red-600">{formatCurrency(totalOutstanding)}</p>
               </CardContent>
             </Card>
@@ -148,7 +150,7 @@ export default function AdminPatients() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-500" />
-                Outstanding Balances
+                {t('Outstanding Balances')}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -163,11 +165,11 @@ export default function AdminPatients() {
                   <table className="w-full text-sm" style={{ minWidth: 520 }}>
                     <thead>
                       <tr className="border-b bg-muted/40">
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Patient</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Doctor</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Total</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Paid</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Remaining</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Total Due')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Total Paid')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Remaining')}</th>
                       </tr>
                     </thead>
                     <tbody>

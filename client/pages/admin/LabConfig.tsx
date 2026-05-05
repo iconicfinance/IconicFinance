@@ -8,8 +8,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { getAllLabs, createLab, updateLab, deleteLab, type Lab } from '@/services/labs';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function LabConfig() {
+  const { t } = useLanguage();
   const [labs, setLabs] = useState<Lab[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -101,11 +103,11 @@ export default function LabConfig() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Lab Configuration</h1>
+          <h1 className="text-2xl font-bold">{t('Lab Configuration')}</h1>
           <p className="text-muted-foreground text-sm mt-1">Define the labs used in patient transactions</p>
         </div>
         <Button onClick={openAdd}>
-          <Plus className="w-4 h-4 mr-2" /> Add Lab
+          <Plus className="w-4 h-4 mr-2" /> {t('Add Lab')}
         </Button>
       </div>
 
@@ -140,7 +142,7 @@ export default function LabConfig() {
                   <FlaskConical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   <span className="flex-1 font-medium text-sm">{lab.name}</span>
                   <Badge variant={lab.is_active ? 'default' : 'secondary'}>
-                    {lab.is_active ? 'Active' : 'Inactive'}
+                    {lab.is_active ? t('Active') : t('Inactive')}
                   </Badge>
                   <button
                     onClick={() => toggleActive(lab)}
@@ -165,7 +167,7 @@ export default function LabConfig() {
       <Dialog open={dialogOpen} onOpenChange={(o) => !o && setDialogOpen(false)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>{editing ? 'Edit Lab' : 'Add Lab'}</DialogTitle>
+            <DialogTitle>{editing ? t('Edit Lab') : t('Add Lab')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             {formError && (
@@ -180,10 +182,10 @@ export default function LabConfig() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('Cancel')}</Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-              {editing ? 'Save Changes' : 'Add Lab'}
+              {editing ? t('Save Changes') : t('Add Lab')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -193,16 +195,16 @@ export default function LabConfig() {
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete Lab</DialogTitle>
+            <DialogTitle>{t('Delete Lab')}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
             Delete <strong>{deleteTarget?.name}</strong>? This will fail if the lab has existing fee records.
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>{t('Cancel')}</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-              Delete
+              {t('Delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

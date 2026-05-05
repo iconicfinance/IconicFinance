@@ -8,10 +8,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { searchPatients, getPatientById, getPatientTransactionsByDoctor, type Patient, type PatientTransaction } from '@/services/patients';
 import { getOutstandingBalancesByDoctor, type PatientBalanceFull } from '@/services/patientBalance';
 import { formatCurrency, formatDate, formatPaymentMethod } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function DoctorPatients() {
   const { user } = useAuth();
   const location = useLocation();
+  const { t } = useLanguage();
 
   const [outstanding, setOutstanding]           = useState<PatientBalanceFull[]>([]);
   const [outstandingLoading, setOutstandingLoading] = useState(true);
@@ -123,7 +125,7 @@ export default function DoctorPatients() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">My Patients</h1>
+        <h1 className="text-2xl font-bold">{t('My Patients')}</h1>
         <p className="text-muted-foreground text-sm mt-1">Outstanding balances and patient search</p>
       </div>
 
@@ -133,7 +135,7 @@ export default function DoctorPatients() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-500" />
-              Outstanding Balances
+              {t('Outstanding Balances')}
               {!outstandingLoading && (
                 <Badge variant="outline" className="ml-auto text-amber-700 border-amber-300">
                   {outstanding.length} patients · {formatCurrency(totalOutstanding)}
@@ -176,19 +178,19 @@ export default function DoctorPatients() {
 
       <div className="relative" ref={dropdownRef}>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search by patient name or code..."
+            placeholder={t('Search...')}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               if (selectedPatient) clearSelection();
             }}
             onFocus={() => results.length > 0 && setShowDropdown(true)}
-            className="pl-9"
+            className="ps-9"
           />
           {searchLoading && (
-            <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+            <Loader className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
           )}
         </div>
         {showDropdown && results.length > 0 && (
@@ -207,7 +209,7 @@ export default function DoctorPatients() {
           </div>
         )}
         {query.length >= 2 && !searchLoading && results.length === 0 && !showDropdown && (
-          <p className="text-sm text-muted-foreground mt-2">No patients found.</p>
+          <p className="text-sm text-muted-foreground mt-2">{t('No patients found.')}</p>
         )}
       </div>
 
@@ -228,11 +230,11 @@ export default function DoctorPatients() {
             {!txLoading && (
               <div className="ml-auto flex gap-4">
                 <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Total Revenue</p>
+                  <p className="text-xs text-muted-foreground">{t('Total Revenue')}</p>
                   <p className="font-semibold">{formatCurrency(totalRevenue)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-muted-foreground">My Earnings</p>
+                  <p className="text-xs text-muted-foreground">{t('My Earnings')}</p>
                   <p className="font-semibold text-primary">{formatCurrency(totalEarnings)}</p>
                 </div>
               </div>
@@ -242,7 +244,7 @@ export default function DoctorPatients() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                Transaction History
+                {t('Transaction History')}
                 {!txLoading && <Badge variant="secondary" className="ml-auto">{transactions.length}</Badge>}
               </CardTitle>
             </CardHeader>
@@ -260,12 +262,12 @@ export default function DoctorPatients() {
                   <table className="text-sm" style={{ minWidth: '650px', width: '100%' }}>
                     <thead>
                       <tr className="border-b bg-muted/40">
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Date')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Amount</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">My Earnings</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('My Earnings')}</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -308,7 +310,7 @@ export default function DoctorPatients() {
       {!selectedPatient && !query && (
         <div className="text-center py-16 text-muted-foreground">
           <Search className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>Search for a patient above to view their history.</p>
+          <p>{t('Search for a patient above to view their history.')}</p>
         </div>
       )}
     </div>

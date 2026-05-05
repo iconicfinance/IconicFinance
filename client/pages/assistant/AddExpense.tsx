@@ -14,10 +14,12 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { createExpenseOut } from '@/services/transactions';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function AssistantAddExpense() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const successRoute =
     user?.role === 'admin' ? '/admin/dashboard'
@@ -74,7 +76,7 @@ export default function AssistantAddExpense() {
     return (
       <div className="max-w-lg mx-auto flex flex-col items-center justify-center py-20 gap-4">
         <CheckCircle className="w-16 h-16 text-green-500" />
-        <h2 className="text-xl font-semibold">Expense Recorded!</h2>
+        <h2 className="text-xl font-semibold">{t('Expense Recorded!')}</h2>
         <p className="text-muted-foreground">Redirecting to today's view...</p>
       </div>
     );
@@ -83,7 +85,7 @@ export default function AssistantAddExpense() {
   return (
     <div className="max-w-lg mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Add Expense</h1>
+        <h1 className="text-2xl font-bold">{t('Add Expense')}</h1>
         <p className="text-muted-foreground text-sm mt-1">Record a new clinic expense</p>
       </div>
 
@@ -104,22 +106,22 @@ export default function AssistantAddExpense() {
               <Label htmlFor="description">Description *</Label>
               <Input
                 id="description"
-                placeholder="What was this expense for?"
+                placeholder={t('Notes (optional)')}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Payment Method *</Label>
+              <Label>{t('Payment Method')} *</Label>
               <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as any)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select payment method" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="vodafone_cash">Vodafone Cash</SelectItem>
-                  <SelectItem value="instapay">Instapay</SelectItem>
+                  <SelectItem value="cash">{t('Cash')}</SelectItem>
+                  <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
+                  <SelectItem value="instapay">{t('Instapay')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -144,11 +146,11 @@ export default function AssistantAddExpense() {
                 onClick={() => navigate(successRoute)}
                 className="flex-1"
               >
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button type="submit" disabled={loading} className="flex-1">
                 {loading && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-                {loading ? 'Saving...' : 'Confirm Expense'}
+                {loading ? t('Saving...') : t('Record Expense')}
               </Button>
             </div>
           </form>

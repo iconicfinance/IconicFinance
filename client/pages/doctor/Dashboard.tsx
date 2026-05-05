@@ -18,10 +18,12 @@ import {
   formatMonth,
   MONTH_NAMES,
 } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function DoctorDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -94,13 +96,13 @@ export default function DoctorDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">My Dashboard</h1>
+          <h1 className="text-2xl font-bold">{t('Dashboard')}</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Welcome back, {user.full_name}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-          {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Refresh'}
+          {loading ? <Loader className="w-4 h-4 animate-spin" /> : t('Refresh')}
         </Button>
       </div>
 
@@ -122,7 +124,7 @@ export default function DoctorDashboard() {
             {!useCustomRange ? (
               <>
                 <div className="space-y-1">
-                  <Label className="text-xs">Month</Label>
+                  <Label className="text-xs">{t('Month')}</Label>
                   <select
                     className="border rounded-md px-3 py-2 text-sm bg-background"
                     value={month}
@@ -134,7 +136,7 @@ export default function DoctorDashboard() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Year</Label>
+                  <Label className="text-xs">{t('Year')}</Label>
                   <select
                     className="border rounded-md px-3 py-2 text-sm bg-background"
                     value={year}
@@ -185,7 +187,7 @@ export default function DoctorDashboard() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Cash</p>
+                <p className="text-sm font-medium text-muted-foreground">{t('Cash')}</p>
                 <p className="text-xl font-bold mt-1">{formatCurrency(cash)}</p>
               </div>
               <PaymentMethodIcon method="cash" size={36} />
@@ -196,7 +198,7 @@ export default function DoctorDashboard() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Vodafone Cash</p>
+                <p className="text-sm font-medium text-muted-foreground">{t('Vodafone Cash')}</p>
                 <p className="text-xl font-bold mt-1">{formatCurrency(vodafoneNet)}</p>
                 <p className="text-xs text-muted-foreground mt-1">Net (after Vodafone fee)</p>
               </div>
@@ -208,7 +210,7 @@ export default function DoctorDashboard() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Instapay</p>
+                <p className="text-sm font-medium text-muted-foreground">{t('Instapay')}</p>
                 <p className="text-xl font-bold mt-1">{formatCurrency(instapay)}</p>
               </div>
               <PaymentMethodIcon method="instapay" size={40} />
@@ -217,7 +219,7 @@ export default function DoctorDashboard() {
         </Card>
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="pt-4 pb-4">
-            <p className="text-sm font-medium text-primary">Total Earnings</p>
+            <p className="text-sm font-medium text-primary">{t('My Earnings')}</p>
             <p className="text-xl font-bold text-primary mt-1">{formatCurrency(totalEarnings)}</p>
             <p className="text-xs text-muted-foreground mt-1">After all deductions</p>
           </CardContent>
@@ -245,13 +247,13 @@ export default function DoctorDashboard() {
                 <thead>
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date / Time</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Patient</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Method</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Base</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Final</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Lab Fees</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">My Earnings</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Notes</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Base')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('My Earnings')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -326,24 +328,24 @@ export default function DoctorDashboard() {
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-2 text-sm">
                       <div>
-                        <p className="text-muted-foreground text-xs">Total Revenue</p>
+                        <p className="text-muted-foreground text-xs">{t('Total Revenue')}</p>
                         <p className="font-medium">{formatCurrency(c.total_revenue)}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Lab Fees</p>
+                        <p className="text-muted-foreground text-xs">{t('Lab Fees')}</p>
                         <p className="font-medium">{formatCurrency(c.total_lab_fees)}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Gross Earnings</p>
+                        <p className="text-muted-foreground text-xs">{t('Gross Earnings')}</p>
                         <p className="font-medium">{formatCurrency(c.doctor_gross_earnings)}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Amount Paid</p>
+                        <p className="text-muted-foreground text-xs">{t('Amount to Pay (EGP)')}</p>
                         <p className="font-semibold text-primary">{formatCurrency(c.amount_to_pay)}</p>
                       </div>
                       {c.comment && (
                         <div className="col-span-2 sm:col-span-3">
-                          <p className="text-muted-foreground text-xs">Comment</p>
+                          <p className="text-muted-foreground text-xs">{t('Comment (optional)')}</p>
                           <p className="text-sm italic">{c.comment}</p>
                         </div>
                       )}

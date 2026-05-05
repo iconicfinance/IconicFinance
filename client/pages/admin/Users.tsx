@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { getAllUsers, createUser, updateUser, User } from '@/services/users';
 import { getAllDoctors, Doctor } from '@/services/doctors';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
@@ -29,6 +30,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function AdminUsers() {
+  const { t } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -148,11 +150,11 @@ export default function AdminUsers() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold">User Management</h1>
+          <h1 className="text-2xl font-bold">{t('User Management')}</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage clinic user accounts</p>
         </div>
         <Button onClick={openAdd}>
-          <Plus className="w-4 h-4 mr-2" /> Create User
+          <Plus className="w-4 h-4 mr-2" /> {t('Add User')}
         </Button>
       </div>
 
@@ -166,7 +168,7 @@ export default function AdminUsers() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            All Users
+            {t('All Users')}
             <Badge variant="secondary" className="ml-auto">{users.length}</Badge>
           </CardTitle>
         </CardHeader>
@@ -183,10 +185,10 @@ export default function AdminUsers() {
                 <thead>
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Username</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Full Name</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Role</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Doctor</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Name')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Role')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Status')}</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
@@ -211,9 +213,9 @@ export default function AdminUsers() {
                       <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{getDoctorName(u.doctor_id)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {u.is_active ? (
-                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>
+                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{t('Active')}</Badge>
                         ) : (
-                          <Badge variant="secondary">Inactive</Badge>
+                          <Badge variant="secondary">{t('Inactive')}</Badge>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
@@ -247,7 +249,7 @@ export default function AdminUsers() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingUser ? 'Edit User' : 'Create New User'}</DialogTitle>
+            <DialogTitle>{editingUser ? t('Edit') + ' User' : 'Create New User'}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
@@ -270,7 +272,7 @@ export default function AdminUsers() {
             )}
 
             <div className="space-y-2">
-              <Label>Full Name *</Label>
+              <Label>{t('Name')} *</Label>
               <Input
                 placeholder="Full name"
                 value={form.full_name}
@@ -291,7 +293,7 @@ export default function AdminUsers() {
             )}
 
             <div className="space-y-2">
-              <Label>Role *</Label>
+              <Label>{t('Role')} *</Label>
               <Select
                 value={form.role}
                 onValueChange={(v) => setForm((f) => ({ ...f, role: v as any, doctor_id: '' }))}
@@ -301,7 +303,7 @@ export default function AdminUsers() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="doctor">Doctor</SelectItem>
+                  <SelectItem value="doctor">{t('Doctor')}</SelectItem>
                   <SelectItem value="assistant">Assistant</SelectItem>
                 </SelectContent>
               </Select>
@@ -336,10 +338,10 @@ export default function AdminUsers() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('Cancel')}</Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving && <Loader className="w-4 h-4 mr-2 animate-spin" />}
-              {saving ? 'Saving...' : editingUser ? 'Save Changes' : 'Create User'}
+              {saving ? t('Saving...') : editingUser ? t('Save Changes') : 'Create User'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -28,6 +28,7 @@ import {
   formatDate,
   MONTH_NAMES,
 } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface DoctorCardState {
   amountToPay: string;
@@ -38,6 +39,7 @@ interface DoctorCardState {
 
 export default function AdminMonthlyClosure() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -209,7 +211,7 @@ export default function AdminMonthlyClosure() {
   const clinicRow = summary[0];
 
   const doctorTypeLabel = (row: MonthlySummaryRow) => {
-    if (row.doctor_type === 'primary') return 'Primary';
+    if (row.doctor_type === 'primary') return t('Primary');
     if (row.doctor_type === 'extern') return 'Extern (40%)';
     return row.custom_label ? `Custom — ${row.custom_label}` : `Custom (${row.custom_percentage}%)`;
   };
@@ -218,7 +220,7 @@ export default function AdminMonthlyClosure() {
     <>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Monthly Closing</h1>
+          <h1 className="text-2xl font-bold">{t('Monthly Closing')}</h1>
           <p className="text-muted-foreground text-sm mt-1">End-of-month financial settlement</p>
         </div>
 
@@ -227,7 +229,7 @@ export default function AdminMonthlyClosure() {
           <CardContent className="pt-4 pb-4">
             <div className="flex flex-wrap gap-4 items-end">
               <div className="space-y-1">
-                <Label className="text-xs">Month</Label>
+                <Label className="text-xs">{t('Month')}</Label>
                 <select
                   className="border rounded-md px-3 py-2 text-sm bg-background"
                   value={month}
@@ -239,7 +241,7 @@ export default function AdminMonthlyClosure() {
                 </select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Year</Label>
+                <Label className="text-xs">{t('Year')}</Label>
                 <select
                   className="border rounded-md px-3 py-2 text-sm bg-background"
                   value={year}
@@ -251,7 +253,7 @@ export default function AdminMonthlyClosure() {
                 </select>
               </div>
               <Button size="sm" onClick={load} disabled={loading}>
-                {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Load'}
+                {loading ? <Loader className="w-4 h-4 animate-spin" /> : t('Load')}
               </Button>
             </div>
           </CardContent>
@@ -267,7 +269,7 @@ export default function AdminMonthlyClosure() {
         {loading && (
           <div className="flex items-center justify-center py-12">
             <Loader className="w-6 h-6 animate-spin text-primary" />
-            <span className="ml-2 text-muted-foreground">Loading summary...</span>
+            <span className="ml-2 text-muted-foreground">{t('Loading...')}</span>
           </div>
         )}
 
@@ -280,32 +282,32 @@ export default function AdminMonthlyClosure() {
         {/* Clinic-wide Summary */}
         {!loading && clinicRow && (
           <div className="space-y-3">
-            <h2 className="text-lg font-semibold">Clinic Summary — {MONTH_NAMES[month - 1]} {year}</h2>
+            <h2 className="text-lg font-semibold">{t('Clinic Summary')} — {MONTH_NAMES[month - 1]} {year}</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
               <Card className="bg-green-50 border-green-200">
-                <CardHeader className="pb-1"><CardTitle className="text-xs text-green-700">Total Revenue</CardTitle></CardHeader>
+                <CardHeader className="pb-1"><CardTitle className="text-xs text-green-700">{t('Total Revenue')}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-bold text-green-800">{formatCurrency(clinicRow.clinic_total_revenue)}</p></CardContent>
               </Card>
               <Card className="bg-red-50 border-red-200">
-                <CardHeader className="pb-1"><CardTitle className="text-xs text-red-700">Total Expenses</CardTitle></CardHeader>
+                <CardHeader className="pb-1"><CardTitle className="text-xs text-red-700">{t('Total Expenses')}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-bold text-red-800">{formatCurrency(clinicRow.clinic_total_expenses)}</p></CardContent>
               </Card>
               <Card className="bg-orange-50 border-orange-200">
-                <CardHeader className="pb-1"><CardTitle className="text-xs text-orange-700">Total Salaries</CardTitle></CardHeader>
+                <CardHeader className="pb-1"><CardTitle className="text-xs text-orange-700">{t('Total Salaries')}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-bold text-orange-800">{formatCurrency(clinicRow.clinic_total_salaries)}</p></CardContent>
               </Card>
               <Card>
-                <CardHeader className="pb-1"><CardTitle className="text-xs text-muted-foreground">Extern / Custom Cut</CardTitle></CardHeader>
+                <CardHeader className="pb-1"><CardTitle className="text-xs text-muted-foreground">{t('Extern / Custom Cut')}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-bold">{formatCurrency(clinicRow.clinic_extern_custom_cut)}</p></CardContent>
               </Card>
               <Card className="bg-primary/5 border-primary/20">
-                <CardHeader className="pb-1"><CardTitle className="text-xs text-primary">Clinic Remaining</CardTitle></CardHeader>
+                <CardHeader className="pb-1"><CardTitle className="text-xs text-primary">{t('Clinic Remaining')}</CardTitle></CardHeader>
                 <CardContent><p className="text-lg font-bold text-primary">{formatCurrency(clinicRow.clinic_remaining)}</p></CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-1">
                   <CardTitle className="text-xs text-muted-foreground">
-                    Primary Share ({clinicRow.primary_doctor_count} doctors)
+                    {t('Primary Share')} ({clinicRow.primary_doctor_count} doctors)
                   </CardTitle>
                 </CardHeader>
                 <CardContent><p className="text-lg font-bold">{formatCurrency(clinicRow.primary_doctor_share)}</p></CardContent>
@@ -319,7 +321,7 @@ export default function AdminMonthlyClosure() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                Lab Fees — {MONTH_NAMES[month - 1]} {year}
+                {t('Lab Fees')} — {MONTH_NAMES[month - 1]} {year}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -344,7 +346,7 @@ export default function AdminMonthlyClosure() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                Monthly Salaries — {MONTH_NAMES[month - 1]} {year}
+                {t('Monthly Salaries')} — {MONTH_NAMES[month - 1]} {year}
                 <Badge variant="secondary" className="ml-auto">
                   {formatCurrency(salaries.reduce((s, x) => s + Number(x.amount), 0))} total
                 </Badge>
@@ -401,7 +403,7 @@ export default function AdminMonthlyClosure() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Notes (optional)</Label>
+                  <Label className="text-xs">{t('Notes (optional)')}</Label>
                   <Input
                     placeholder="Any notes..."
                     value={newSalaryNotes}
@@ -411,10 +413,10 @@ export default function AdminMonthlyClosure() {
               </div>
               <Button size="sm" onClick={handleAddSalary} disabled={addingSalary}>
                 {addingSalary ? <Loader className="w-4 h-4 mr-1.5 animate-spin" /> : <Plus className="w-4 h-4 mr-1.5" />}
-                {addingSalary ? 'Adding...' : 'Add Salary'}
+                {addingSalary ? 'Adding...' : t('Add Salary')}
               </Button>
               {salaries.length === 0 && (
-                <p className="text-sm text-muted-foreground">No salaries recorded for this month yet.</p>
+                <p className="text-sm text-muted-foreground">{t('No salaries recorded for this month yet.')}</p>
               )}
             </CardContent>
           </Card>
@@ -423,7 +425,7 @@ export default function AdminMonthlyClosure() {
         {/* Per-Doctor Cards */}
         {!loading && summary.length > 0 && (
           <div className="space-y-3">
-            <h2 className="text-lg font-semibold">Per-Doctor Closings</h2>
+            <h2 className="text-lg font-semibold">{t('Per-Doctor Closings')}</h2>
             {summary.map((row) => {
               const closing = getClosing(row.doctor_id);
               const state = cardStates[row.doctor_id] || { amountToPay: '', comment: '', saving: false, error: '' };
@@ -456,7 +458,7 @@ export default function AdminMonthlyClosure() {
                           {printingId === row.doctor_id
                             ? <Loader className="w-4 h-4 mr-1 animate-spin" />
                             : <Printer className="w-4 h-4 mr-1" />}
-                          {printingId === row.doctor_id ? 'Loading...' : 'Print / PDF'}
+                          {printingId === row.doctor_id ? t('Loading...') : t('Print / PDF')}
                         </Button>
                         {isConfirmed && closing && (
                           <Button
@@ -464,7 +466,7 @@ export default function AdminMonthlyClosure() {
                             size="sm"
                             onClick={() => handleReopen(closing)}
                           >
-                            <Unlock className="w-4 h-4 mr-1" /> Re-open
+                            <Unlock className="w-4 h-4 mr-1" /> {t('Reopen')}
                           </Button>
                         )}
                       </div>
@@ -474,19 +476,19 @@ export default function AdminMonthlyClosure() {
                     {/* Stats */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
                       <div>
-                        <p className="text-xs text-muted-foreground">Cases</p>
+                        <p className="text-xs text-muted-foreground">{t('Cases')}</p>
                         <p className="font-semibold">{row.case_count}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Total Revenue</p>
+                        <p className="text-xs text-muted-foreground">{t('Total Revenue')}</p>
                         <p className="font-semibold">{formatCurrency(row.total_revenue)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Lab Fees</p>
+                        <p className="text-xs text-muted-foreground">{t('Lab Fees')}</p>
                         <p className="font-semibold">{formatCurrency(row.total_lab_fees)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Gross Earnings</p>
+                        <p className="text-xs text-muted-foreground">{t('Gross Earnings')}</p>
                         <p className="font-semibold text-primary">{formatCurrency(row.doctor_gross_earnings)}</p>
                       </div>
                     </div>
@@ -500,7 +502,7 @@ export default function AdminMonthlyClosure() {
                     {/* Editable fields — locked when confirmed */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <Label className="text-xs">Amount to Pay (EGP)</Label>
+                        <Label className="text-xs">{t('Amount to Pay (EGP)')}</Label>
                         <Input
                           type="number"
                           min="0"
@@ -512,7 +514,7 @@ export default function AdminMonthlyClosure() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Comment (optional)</Label>
+                        <Label className="text-xs">{t('Comment (optional)')}</Label>
                         <Input
                           placeholder="Admin note..."
                           value={isConfirmed ? (closing?.comment ?? '') : state.comment}
@@ -535,7 +537,7 @@ export default function AdminMonthlyClosure() {
                           ) : (
                             <Lock className="w-4 h-4 mr-2" />
                           )}
-                          {state.saving ? 'Confirming...' : 'Confirm & Lock'}
+                          {state.saving ? 'Confirming...' : t('Confirm & Lock')}
                         </Button>
                       </div>
                     )}
@@ -725,4 +727,3 @@ function buildPrintHTML({ row, closing, transactions, salaries, month, year }: P
 </body>
 </html>`;
 }
-
