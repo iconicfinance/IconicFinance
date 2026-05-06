@@ -213,43 +213,31 @@ export default function AssistantAddPayment() {
         setError(t('Please select a payment method.')); setLoading(false); return;
       }
 
-      // If truly nothing financial to do (0 pay, no new balance, no update) — just note the visit
-      if (!isRecordingPayment && !isSettingNewBalance && !isUpdatingTotal) {
-        setSuccessMsg(t('Visit Noted!'));
-        setSuccess(true);
-        setTimeout(() => navigate(successRoute), 1500);
-        setLoading(false);
-        return;
-      }
-
       const validLabs = hasLabFees
         ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
         : [];
 
-      // ── Create transaction only when paying > 0 ───────────────────────────
-      let txId: string | null = null;
-      if (isRecordingPayment) {
-        const tx = await createPaymentIn({
-          assistant_id: user.id,
-          assistant_name: user.full_name,
-          patient_id: patientId,
-          patient_name: patientName,
-          doctor_id: selectedDoctorId,
-          payment_method: paymentMethod as any,
-          base_amount: payTodayNum,
-          final_amount: finalDueToday,
-          has_lab_fees: validLabs.length > 0,
-          lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
-          expense_description: description.trim() || null,
-        });
-        txId = tx.id;
+      // ── Always create a transaction (even for 0-amount visits) ───────────
+      const tx = await createPaymentIn({
+        assistant_id: user.id,
+        assistant_name: user.full_name,
+        patient_id: patientId,
+        patient_name: patientName,
+        doctor_id: selectedDoctorId,
+        payment_method: paymentMethod || null,
+        base_amount: payTodayNum,
+        final_amount: finalDueToday,
+        has_lab_fees: validLabs.length > 0,
+        lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
+        expense_description: description.trim() || null,
+      });
+      const txId = tx.id;
 
-        if (validLabs.length > 0) {
-          await saveLabFeesForTransaction(
-            txId,
-            validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
-          );
-        }
+      if (validLabs.length > 0) {
+        await saveLabFeesForTransaction(
+          txId,
+          validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+        );
       }
 
       // ── Balance tracking (works with any payTodayNum including 0) ─────────
@@ -301,7 +289,7 @@ export default function AssistantAddPayment() {
         });
       }
 
-      setSuccessMsg(isRecordingPayment ? t('Payment Recorded!') : t('Balance Recorded!'));
+      setSuccessMsg(payTodayNum > 0 ? t('Payment Recorded!') : t('Visit Recorded!'));
       setSuccess(true);
       setTimeout(() => navigate(successRoute), 1500);
     } catch (err: any) {

@@ -107,7 +107,7 @@ export const createPaymentIn = async (data: {
   patient_id: string;
   patient_name: string;
   doctor_id: string;
-  payment_method: 'cash' | 'vodafone_cash' | 'instapay';
+  payment_method: 'cash' | 'vodafone_cash' | 'instapay' | null;
   base_amount: number;
   final_amount: number;
   has_lab_fees: boolean;
