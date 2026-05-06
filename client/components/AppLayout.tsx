@@ -89,6 +89,7 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
         { label: t('Today'), icon: Home, href: '/assistant/today' },
         { label: t('Payment'), icon: CreditCard, href: '/assistant/add-payment' },
         { label: t('Expense'), icon: Receipt, href: '/assistant/add-expense' },
+        { label: t('History'), icon: History, href: '/assistant/history' },
         { label: t('Patients'), icon: Search, href: '/assistant/patients' },
         { label: t('Closing'), icon: CalendarCheck, href: '/assistant/closing' },
       ];

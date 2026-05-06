@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getTransactionsByDateRange, Transaction } from '@/services/transactions';
+import { getActiveDoctors, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -12,12 +13,16 @@ export default function AssistantHistory() {
   const location = useLocation();
   const { t } = useLanguage();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Pre-fill search if a patient name was passed via router state
   const [search, setSearch] = useState(
     (location.state as { patientName?: string } | null)?.patientName || ''
   );
+
+  const getDoctorName = (id: string | null) =>
+    doctors.find((d) => d.id === id)?.name || '—';
 
   useEffect(() => {
     const to = new Date();
@@ -26,10 +31,14 @@ export default function AssistantHistory() {
     from.setDate(from.getDate() - 30);
     from.setHours(0, 0, 0, 0);
 
-    getTransactionsByDateRange(from, to)
-      .then(setTransactions)
-      .catch((err) => setError(err.message || 'Failed to load history'))
-      .finally(() => setLoading(false));
+    Promise.allSettled([
+      getTransactionsByDateRange(from, to),
+      getActiveDoctors(),
+    ]).then(([txResult, docResult]) => {
+      if (txResult.status === 'fulfilled') setTransactions(txResult.value);
+      else setError((txResult.reason as any)?.message || 'Failed to load history');
+      if (docResult.status === 'fulfilled') setDoctors(docResult.value);
+    }).finally(() => setLoading(false));
   }, []);
 
   const query = search.toLowerCase();
@@ -84,13 +93,14 @@ export default function AssistantHistory() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="text-sm" style={{ minWidth: '700px', width: '100%' }}>
+              <table className="text-sm" style={{ minWidth: '800px', width: '100%' }}>
                 <thead>
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Date')}</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Time</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Type</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Amount</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
@@ -126,6 +136,9 @@ export default function AssistantHistory() {
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                        {tx.type === 'payment_in' ? getDoctorName(tx.doctor_id) : '—'}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
                       <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>

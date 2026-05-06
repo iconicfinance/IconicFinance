@@ -78,6 +78,7 @@ export default function AssistantClosing() {
       const closing = await saveClosing({
         month, year,
         doctor_id: row.doctor_id,
+        case_count: row.case_count,
         total_revenue: row.total_revenue,
         total_lab_fees: row.total_lab_fees,
         doctor_gross_earnings: row.doctor_gross_earnings,
@@ -244,6 +245,16 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
         const typeLabel = row.doctor_type === 'custom' ? (row.custom_label || t('Custom')) : `${t('Extern')} (${pct}%)`;
         if (!state) return null;
 
+        // When locked, show frozen numbers saved at confirmation time
+        const displayCases    = locked && closing ? (closing.case_count ?? row.case_count) : row.case_count;
+        const displayRevenue  = locked && closing ? closing.total_revenue        : row.total_revenue;
+        const displayLabFees  = locked && closing ? closing.total_lab_fees       : row.total_lab_fees;
+        const displayEarnings = locked && closing ? closing.doctor_gross_earnings : row.doctor_gross_earnings;
+
+        // New transactions added after this closing was confirmed
+        const pendingCases   = locked && closing ? Math.max(0, row.case_count - (closing.case_count ?? row.case_count)) : 0;
+        const pendingRevenue = locked && closing ? Math.max(0, row.total_revenue - closing.total_revenue) : 0;
+
         return (
           <Card key={row.doctor_id} className={locked ? 'border-green-200 bg-green-50/30' : ''}>
             <CardHeader>
@@ -272,25 +283,37 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Stats */}
+              {/* Stats — frozen at confirmation time when locked */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <p className="text-xs text-muted-foreground">{t('Cases')}</p>
-                  <p className="font-semibold">{row.case_count}</p>
+                  <p className="font-semibold">{displayCases}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{t('Total Revenue')}</p>
-                  <p className="font-semibold">{formatCurrency(row.total_revenue)}</p>
+                  <p className="font-semibold">{formatCurrency(displayRevenue)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{t('Lab Fees')}</p>
-                  <p className="font-semibold">{formatCurrency(row.total_lab_fees)}</p>
+                  <p className="font-semibold">{formatCurrency(displayLabFees)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{t('Gross Earnings')}</p>
-                  <p className="font-semibold text-primary">{formatCurrency(row.doctor_gross_earnings)}</p>
+                  <p className="font-semibold text-primary">{formatCurrency(displayEarnings)}</p>
                 </div>
               </div>
+
+              {/* New cases added after this closing was confirmed */}
+              {pendingCases > 0 && (
+                <div className="border border-amber-300 bg-amber-50 rounded-lg px-4 py-3 space-y-1">
+                  <p className="text-sm font-semibold text-amber-800">
+                    {pendingCases} {t('new case(s) since this closing')}
+                  </p>
+                  <p className="text-xs text-amber-700">
+                    {t('Revenue')}: {formatCurrency(pendingRevenue)} — {t('Reopen to include in a new closing')}
+                  </p>
+                </div>
+              )}
 
               {state.error && (
                 <p className="text-sm text-red-600">{state.error}</p>

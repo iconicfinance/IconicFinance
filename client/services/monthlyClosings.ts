@@ -5,6 +5,7 @@ export interface MonthlyClosing {
   month: number;
   year: number;
   doctor_id: string;
+  case_count: number | null;
   total_revenue: number;
   total_lab_fees: number;
   doctor_gross_earnings: number;
@@ -97,6 +98,7 @@ export const saveClosing = async (data: {
   month: number;
   year: number;
   doctor_id: string;
+  case_count: number;
   total_revenue: number;
   total_lab_fees: number;
   doctor_gross_earnings: number;

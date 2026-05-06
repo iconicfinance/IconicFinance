@@ -178,6 +178,15 @@ export const updateTransaction = async (
   return data;
 };
 
+export const deleteTransaction = async (id: string): Promise<void> => {
+  const supabase = getSupabaseClient();
+  // Clear FK references in child tables before deleting
+  await supabase.from('patient_balance_events').update({ transaction_id: null }).eq('transaction_id', id);
+  await supabase.from('transaction_lab_fees').delete().eq('transaction_id', id);
+  const { error } = await supabase.from('transactions').delete().eq('id', id);
+  if (error) throw error;
+};
+
 export const updateLabFees = async (
   transactionId: string,
   labFeesAmount: number

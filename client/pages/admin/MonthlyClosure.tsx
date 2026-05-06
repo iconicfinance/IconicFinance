@@ -118,6 +118,7 @@ export default function AdminMonthlyClosure() {
         month,
         year,
         doctor_id: row.doctor_id,
+        case_count: row.case_count,
         total_revenue: Number(row.total_revenue),
         total_lab_fees: Number(row.total_lab_fees),
         doctor_gross_earnings: Number(row.doctor_gross_earnings),
@@ -431,6 +432,14 @@ export default function AdminMonthlyClosure() {
               const state = cardStates[row.doctor_id] || { amountToPay: '', comment: '', saving: false, error: '' };
               const isConfirmed = closing?.is_confirmed === true;
 
+              // Freeze display at confirmation-time values; live RPC data only used before confirming
+              const displayCases    = isConfirmed && closing ? (closing.case_count ?? row.case_count) : row.case_count;
+              const displayRevenue  = isConfirmed && closing ? closing.total_revenue        : row.total_revenue;
+              const displayLabFees  = isConfirmed && closing ? closing.total_lab_fees       : row.total_lab_fees;
+              const displayEarnings = isConfirmed && closing ? closing.doctor_gross_earnings : row.doctor_gross_earnings;
+              const pendingCases    = isConfirmed && closing ? Math.max(0, row.case_count - (closing.case_count ?? row.case_count)) : 0;
+              const pendingRevenue  = isConfirmed && closing ? Math.max(0, row.total_revenue - closing.total_revenue) : 0;
+
               return (
                 <Card
                   key={row.doctor_id}
@@ -473,25 +482,37 @@ export default function AdminMonthlyClosure() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {/* Stats */}
+                    {/* Stats — frozen at confirmation time when confirmed */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
                       <div>
                         <p className="text-xs text-muted-foreground">{t('Cases')}</p>
-                        <p className="font-semibold">{row.case_count}</p>
+                        <p className="font-semibold">{displayCases}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">{t('Total Revenue')}</p>
-                        <p className="font-semibold">{formatCurrency(row.total_revenue)}</p>
+                        <p className="font-semibold">{formatCurrency(displayRevenue)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">{t('Lab Fees')}</p>
-                        <p className="font-semibold">{formatCurrency(row.total_lab_fees)}</p>
+                        <p className="font-semibold">{formatCurrency(displayLabFees)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">{t('Gross Earnings')}</p>
-                        <p className="font-semibold text-primary">{formatCurrency(row.doctor_gross_earnings)}</p>
+                        <p className="font-semibold text-primary">{formatCurrency(displayEarnings)}</p>
                       </div>
                     </div>
+
+                    {/* New cases added after this closing was confirmed */}
+                    {pendingCases > 0 && (
+                      <div className="border border-amber-300 bg-amber-50 rounded-lg px-4 py-3 mb-4 space-y-1">
+                        <p className="text-sm font-semibold text-amber-800">
+                          {pendingCases} new case(s) added after this closing was confirmed
+                        </p>
+                        <p className="text-xs text-amber-700">
+                          Revenue: {formatCurrency(pendingRevenue)} — Reopen to include in a new closing
+                        </p>
+                      </div>
+                    )}
 
                     {state.error && (
                       <div className="bg-red-50 border border-red-200 rounded p-2 text-sm text-red-600 mb-3">
