@@ -21,6 +21,7 @@ import AssistantAddPayment from "./pages/assistant/AddPayment";
 import AssistantAddExpense from "./pages/assistant/AddExpense";
 import AssistantHistory from "./pages/assistant/History";
 import AssistantPatients from "./pages/assistant/Patients";
+import AssistantClosing from "./pages/assistant/AssistantClosing";
 
 // Doctor Pages
 import DoctorDashboard from "./pages/doctor/Dashboard";
@@ -151,6 +152,16 @@ const App = () => (
                 <ProtectedRoute allowedRoles={["assistant"]}>
                   <LayoutRoute>
                     <AssistantPatients />
+                  </LayoutRoute>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/assistant/closing"
+              element={
+                <ProtectedRoute allowedRoles={["assistant"]}>
+                  <LayoutRoute>
+                    <AssistantClosing />
                   </LayoutRoute>
                 </ProtectedRoute>
               }

@@ -208,20 +208,18 @@ export default function AssistantAddPayment() {
       const isUpdatingTotal = activeBalance &&
         (parseFloat(newTotalValue) || activeBalance.total_due) !== activeBalance.total_due;
 
-      // Need at least one of: payment, new balance, or total update
-      if (!isRecordingPayment && !isSettingNewBalance && !isUpdatingTotal) {
-        setError(
-          activeBalance
-            ? t('Please enter a payment amount or change the total.')
-            : t('Please enter a payment amount or set a total clinical amount.')
-        );
-        setLoading(false);
-        return;
-      }
-
       // Payment method only required when actually collecting money
       if (isRecordingPayment && !paymentMethod) {
         setError(t('Please select a payment method.')); setLoading(false); return;
+      }
+
+      // If truly nothing financial to do (0 pay, no new balance, no update) — just note the visit
+      if (!isRecordingPayment && !isSettingNewBalance && !isUpdatingTotal) {
+        setSuccessMsg(t('Visit Noted!'));
+        setSuccess(true);
+        setTimeout(() => navigate(successRoute), 1500);
+        setLoading(false);
+        return;
       }
 
       const validLabs = hasLabFees
@@ -489,10 +487,12 @@ export default function AssistantAddPayment() {
               </div>
             )}
 
-            {/* ── Payment Method (only required when paying > 0) ── */}
-            {payTodayNum > 0 && (
+            {/* ── Payment Method — always visible, required only when payToday > 0 ── */}
             <div className="space-y-1.5">
-              <Label>{t('Payment Method')} *</Label>
+              <Label>
+                {t('Payment Method')}
+                {payTodayNum > 0 && ' *'}
+              </Label>
               <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as any)}>
                 <SelectTrigger><SelectValue placeholder={t('Select payment method')} /></SelectTrigger>
                 <SelectContent>
@@ -502,7 +502,6 @@ export default function AssistantAddPayment() {
                 </SelectContent>
               </Select>
             </div>
-            )}
 
             {/* ── Total Due Today (computed summary) ── */}
             {payTodayNum > 0 && paymentMethod && (

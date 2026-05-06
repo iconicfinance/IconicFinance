@@ -178,7 +178,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
     const createdAt  = isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
 
     try {
-      let saved: Transaction;
+      let saved: Transaction | undefined;
 
       if (type === 'payment_in') {
         // Resolve patient
@@ -194,35 +194,52 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
           });
           patientId = p.id; patientName = p.full_name;
         }
-        if (!patientId)      { setError(t('Please select or create a patient.')); setSaving(false); return; }
-        if (!doctorId)       { setError(t('Please select a doctor.'));             setSaving(false); return; }
-        if (!paymentMethod)  { setError(t('Please select a payment method.'));     setSaving(false); return; }
-        if (payTodayNum <= 0){ setError(t('Please enter a valid amount to pay.')); setSaving(false); return; }
+        if (!patientId) { setError(t('Please select or create a patient.')); setSaving(false); return; }
+        if (!doctorId)  { setError(t('Please select a doctor.'));             setSaving(false); return; }
+
+        const isRecordingPayment = payTodayNum > 0;
+        const isSettingNewBalance = !activeBalance && totalClinicalNum > 0;
+        const isUpdatingTotal = activeBalance &&
+          (parseFloat(newTotalValue) || activeBalance.total_due) !== activeBalance.total_due;
+
+        if (isRecordingPayment && !paymentMethod) {
+          setError(t('Please select a payment method.')); setSaving(false); return;
+        }
+
+        // Nothing financial to do → close silently (visit noted)
+        if (!isRecordingPayment && !isSettingNewBalance && !isUpdatingTotal) {
+          onClose(); setSaving(false); return;
+        }
 
         const validLabs = hasLabFees
           ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
           : [];
 
-        saved = await createPaymentIn({
-          assistant_id:   user.id,
-          assistant_name: user.full_name,
-          patient_id:     patientId,
-          patient_name:   patientName,
-          doctor_id:      doctorId,
-          payment_method: paymentMethod as any,
-          base_amount:    payTodayNum,
-          final_amount:   finalDueToday,
-          has_lab_fees:   validLabs.length > 0,
-          lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
-          expense_description: description.trim() || null,
-          created_at: createdAt,
-        });
+        // Only create a transaction when actually paying
+        let txId: string | null = null;
+        if (isRecordingPayment) {
+          saved = await createPaymentIn({
+            assistant_id:   user.id,
+            assistant_name: user.full_name,
+            patient_id:     patientId,
+            patient_name:   patientName,
+            doctor_id:      doctorId,
+            payment_method: paymentMethod as any,
+            base_amount:    payTodayNum,
+            final_amount:   finalDueToday,
+            has_lab_fees:   validLabs.length > 0,
+            lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
+            expense_description: description.trim() || null,
+            created_at: createdAt,
+          });
+          txId = saved.id;
 
-        if (validLabs.length > 0) {
-          await saveLabFeesForTransaction(
-            saved.id,
-            validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
-          );
+          if (validLabs.length > 0) {
+            await saveLabFeesForTransaction(
+              txId,
+              validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+            );
+          }
         }
 
         // ── Balance tracking ────────────────────────────────────────────────────
@@ -240,13 +257,15 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
               transaction_id: null, notes: null,
             });
           }
-          logBalanceEvent({
-            patient_id: patientId, doctor_id: doctorId,
-            event_type: 'payment',
-            old_total: null, new_total: newTotalDue,
-            payment_amount: creditToBalance, new_remaining: newRemaining,
-            transaction_id: saved.id, notes: null,
-          });
+          if (isRecordingPayment) {
+            logBalanceEvent({
+              patient_id: patientId, doctor_id: doctorId,
+              event_type: 'payment',
+              old_total: null, new_total: newTotalDue,
+              payment_amount: creditToBalance, new_remaining: newRemaining,
+              transaction_id: txId, notes: null,
+            });
+          }
           await updatePatientBalance(activeBalance.id, {
             total_due:  newTotalDue,
             total_paid: Math.min(newTotalPaid, newTotalDue),
@@ -259,7 +278,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
             event_type: 'balance_created',
             old_total: null, new_total: totalClinicalNum,
             payment_amount: creditToBalance, new_remaining: newRemaining,
-            transaction_id: saved.id, notes: null,
+            transaction_id: txId, notes: null,
           });
           await upsertPatientBalance({
             patient_id: patientId, doctor_id: doctorId,
@@ -285,7 +304,8 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
         });
       }
 
-      onSaved(saved);
+      if (saved) onSaved(saved);
+      else onClose();
     } catch (err: any) {
       setError(err.message || t('Failed to load'));
     } finally {
@@ -454,14 +474,26 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
 
               {/* Pay Today */}
               <div className="space-y-1.5">
-                <Label>{t('Pay Today (EGP) *')}</Label>
+                <Label>
+                  {t('Pay Today (EGP)')}
+                  <span className="text-muted-foreground text-xs ms-1">({t('Leave 0 if not paying today')})</span>
+                </Label>
                 <Input type="number" min="0" step="0.01" placeholder="0.00"
                   value={payToday} onChange={(e) => setPayToday(e.target.value)} />
               </div>
 
-              {/* Payment Method */}
+              {/* Zero-payment info */}
+              {payTodayNum === 0 && (totalClinicalNum > 0 || activeBalance) && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+                  {activeBalance
+                    ? t('No payment today — balance total will be updated if changed.')
+                    : `${t('No payment today — balance of')} ${formatCurrency(totalClinicalNum)} ${t('will be recorded as outstanding.')}`}
+                </div>
+              )}
+
+              {/* Payment Method — always visible, required only when payToday > 0 */}
               <div className="space-y-1.5">
-                <Label>{t('Payment Method')} *</Label>
+                <Label>{t('Payment Method')}{payTodayNum > 0 && ' *'}</Label>
                 <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                   <SelectTrigger><SelectValue placeholder={t('Select payment method')} /></SelectTrigger>
                   <SelectContent>
