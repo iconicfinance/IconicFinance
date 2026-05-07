@@ -1,17 +1,18 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer } from 'lucide-react';
+import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  getMonthlySummary, getClosingsForMonth, saveClosing, confirmClosing, reopenClosing,
+  getMonthlySummary, getClosingsForMonth, getAllConfirmedClosings,
+  saveClosing, confirmClosing, reopenClosing,
   type MonthlySummaryRow, type MonthlyClosing,
 } from '@/services/monthlyClosings';
 import { getTransactionsByDoctor } from '@/services/transactions';
-import { formatCurrency, MONTH_NAMES } from '@/lib/utils';
+import { formatCurrency, formatDate, MONTH_NAMES } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 interface DoctorState {
@@ -28,31 +29,41 @@ export default function AssistantClosing() {
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const [summary, setSummary]   = useState<MonthlySummaryRow[]>([]);
-  const [closings, setClosings] = useState<MonthlyClosing[]>([]);
-  const [cardStates, setCardStates] = useState<Record<string, DoctorState>>({});
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState<string | null>(null);
-  const [printingId, setPrintingId] = useState<string | null>(null);
+  const [summary, setSummary]         = useState<MonthlySummaryRow[]>([]);
+  const [closings, setClosings]       = useState<MonthlyClosing[]>([]);
+  const [closingHistory, setClosingHistory] = useState<MonthlyClosing[]>([]);
+  const [cardStates, setCardStates]   = useState<Record<string, DoctorState>>({});
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [printingId, setPrintingId]   = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [sumData, closingData] = await Promise.all([
+      const [sumData, closingData, historyData] = await Promise.all([
         getMonthlySummary(year, month),
         getClosingsForMonth(year, month),
+        getAllConfirmedClosings(),
       ]);
       // Only show extern and custom doctors
       const filtered = sumData.filter((r) => r.doctor_type === 'extern' || r.doctor_type === 'custom');
       setSummary(filtered);
       setClosings(closingData);
+      setClosingHistory(historyData.filter((h) => filtered.some((r) => r.doctor_id === h.doctor_id)));
 
       const states: Record<string, DoctorState> = {};
       filtered.forEach((row) => {
         const existing = closingData.find((c) => c.doctor_id === row.doctor_id);
+        // If this closing was previously confirmed then reopened, default amount = delta only
+        const wasReopened = existing?.confirmed_at != null && existing.is_confirmed === false;
+        const delta = wasReopened
+          ? Math.max(0, row.doctor_gross_earnings - (existing!.doctor_gross_earnings ?? 0))
+          : 0;
         states[row.doctor_id] = {
-          amountToPay: existing?.amount_to_pay?.toString() ?? row.doctor_gross_earnings.toString(),
+          amountToPay: wasReopened
+            ? delta.toString()
+            : existing?.amount_to_pay?.toString() ?? row.doctor_gross_earnings.toString(),
           comment: existing?.comment ?? '',
           saving: false,
           error: '',
@@ -111,6 +122,9 @@ export default function AssistantClosing() {
     try {
       const reopened = await reopenClosing(closing.id);
       setClosings((prev) => prev.map((c) => (c.id === reopened.id ? reopened : c)));
+      // Default amount = only the new earnings since the last confirmed closing
+      const delta = Math.max(0, row.doctor_gross_earnings - (closing.doctor_gross_earnings ?? 0));
+      updateState(row.doctor_id, { amountToPay: delta.toString() });
     } catch (e: any) {
       updateState(row.doctor_id, { error: e.message || 'Failed to reopen' });
     } finally {
@@ -245,6 +259,9 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
         const typeLabel = row.doctor_type === 'custom' ? (row.custom_label || t('Custom')) : `${t('Extern')} (${pct}%)`;
         if (!state) return null;
 
+        // Payment history for this doctor (all confirmed closings, most recent first)
+        const history = closingHistory.filter((h) => h.doctor_id === row.doctor_id);
+
         // When locked, show frozen numbers saved at confirmation time
         const displayCases    = locked && closing ? (closing.case_count ?? row.case_count) : row.case_count;
         const displayRevenue  = locked && closing ? closing.total_revenue        : row.total_revenue;
@@ -342,6 +359,33 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
                   />
                 </div>
               </div>
+
+              {/* Payment timeline */}
+              {history.length > 0 && (
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="w-3 h-3" /> {t('Payment History')}
+                  </p>
+                  <div className="space-y-1.5">
+                    {history.map((h) => (
+                      <div key={h.id} className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground w-24 shrink-0">
+                          {h.confirmed_at ? formatDate(h.confirmed_at) : `${MONTH_NAMES[h.month - 1]} ${h.year}`}
+                        </span>
+                        <span className="text-muted-foreground">·</span>
+                        <span>{h.case_count ?? '?'} {t('cases')}</span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="font-semibold text-green-700">{formatCurrency(h.amount_to_pay ?? 0)}</span>
+                        {h.comment && (
+                          <span className="text-muted-foreground truncate max-w-[120px]" title={h.comment}>
+                            — {h.comment}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Action button */}
               {locked ? (

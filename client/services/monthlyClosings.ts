@@ -38,6 +38,17 @@ export interface MonthlySummaryRow {
   primary_doctor_share: number;
 }
 
+export const getAllConfirmedClosings = async (): Promise<MonthlyClosing[]> => {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('monthly_closings')
+    .select('*')
+    .eq('is_confirmed', true)
+    .order('confirmed_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
 export const getClosingsByDoctor = async (doctorId: string): Promise<MonthlyClosing[]> => {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
