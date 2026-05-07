@@ -6,6 +6,7 @@ export interface MonthlyClosing {
   year: number;
   doctor_id: string;
   case_count: number | null;
+  closing_date: string | null;
   total_revenue: number;
   total_lab_fees: number;
   doctor_gross_earnings: number;
@@ -110,6 +111,7 @@ export const saveClosing = async (data: {
   year: number;
   doctor_id: string;
   case_count: number;
+  closing_date: string;
   total_revenue: number;
   total_lab_fees: number;
   doctor_gross_earnings: number;
@@ -119,9 +121,10 @@ export const saveClosing = async (data: {
   is_confirmed: boolean;
 }): Promise<MonthlyClosing> => {
   const supabase = getSupabaseClient();
+  // Always INSERT — each payment cycle is its own record for full history
   const { data: result, error } = await supabase
     .from('monthly_closings')
-    .upsert(data, { onConflict: 'doctor_id,month,year' })
+    .insert([data])
     .select()
     .single();
 

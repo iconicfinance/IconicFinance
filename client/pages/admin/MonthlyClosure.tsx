@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer, Plus, Trash2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,9 +9,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   getMonthlySummary,
   getClosingsForMonth,
+  getAllConfirmedClosings,
   saveClosing,
   confirmClosing,
-  reopenClosing,
   MonthlySummaryRow,
   MonthlyClosing,
 } from '@/services/monthlyClosings';
@@ -28,6 +28,11 @@ import {
   formatDate,
   MONTH_NAMES,
 } from '@/lib/utils';
+
+const latestClosing = (list: MonthlyClosing[], doctorId: string): MonthlyClosing | undefined =>
+  [...list]
+    .filter((c) => c.doctor_id === doctorId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
 import { useLanguage } from '@/contexts/LanguageContext';
 
 interface DoctorCardState {
@@ -44,12 +49,14 @@ export default function AdminMonthlyClosure() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const [summary, setSummary] = useState<MonthlySummaryRow[]>([]);
-  const [closings, setClosings] = useState<MonthlyClosing[]>([]);
-  const [cardStates, setCardStates] = useState<Record<string, DoctorCardState>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [printingId, setPrintingId] = useState<string | null>(null);
+  const [summary, setSummary]               = useState<MonthlySummaryRow[]>([]);
+  const [closings, setClosings]             = useState<MonthlyClosing[]>([]);
+  const [closingHistory, setClosingHistory] = useState<MonthlyClosing[]>([]);
+  const [reopenedDoctors, setReopenedDoctors] = useState<Set<string>>(new Set());
+  const [cardStates, setCardStates]         = useState<Record<string, DoctorCardState>>({});
+  const [loading, setLoading]               = useState(false);
+  const [error, setError]                   = useState<string | null>(null);
+  const [printingId, setPrintingId]         = useState<string | null>(null);
 
   // Lab fees per lab
   const [labTotals, setLabTotals] = useState<{ lab_id: string; lab_name: string; total: number }[]>([]);
@@ -66,23 +73,29 @@ export default function AdminMonthlyClosure() {
     try {
       setLoading(true);
       setError(null);
-      const [sumData, closingData, salaryData, labData] = await Promise.all([
+      setReopenedDoctors(new Set());
+      const [sumData, closingData, salaryData, labData, historyData] = await Promise.all([
         getMonthlySummary(year, month),
         getClosingsForMonth(year, month),
         getSalariesForMonth(year, month),
         getLabFeesForMonth(year, month),
+        getAllConfirmedClosings(),
       ]);
       setSummary(sumData);
       setClosings(closingData);
       setSalaries(salaryData);
       setLabTotals(labData);
+      setClosingHistory(historyData.filter((h) => sumData.some((r) => r.doctor_id === h.doctor_id)));
 
       const states: Record<string, DoctorCardState> = {};
       sumData.forEach((row) => {
-        const existing = closingData.find((c) => c.doctor_id === row.doctor_id);
+        const recent = latestClosing(closingData, row.doctor_id);
+        const delta = recent
+          ? Math.max(0, row.doctor_gross_earnings - (recent.doctor_gross_earnings ?? 0))
+          : row.doctor_gross_earnings;
         states[row.doctor_id] = {
-          amountToPay: existing?.amount_to_pay?.toString() ?? row.doctor_gross_earnings.toString(),
-          comment: existing?.comment ?? '',
+          amountToPay: recent ? delta.toString() : row.doctor_gross_earnings.toString(),
+          comment: '',
           saving: false,
           error: '',
         };
@@ -99,7 +112,7 @@ export default function AdminMonthlyClosure() {
     load();
   }, [load]);
 
-  const getClosing = (doctorId: string) => closings.find((c) => c.doctor_id === doctorId) || null;
+  const getClosing = (doctorId: string) => latestClosing(closings, doctorId) || null;
 
   const updateCard = (doctorId: string, patch: Partial<DoctorCardState>) => {
     setCardStates((prev) => ({
@@ -114,11 +127,13 @@ export default function AdminMonthlyClosure() {
     updateCard(row.doctor_id, { saving: true, error: '' });
 
     try {
+      const todayStr = new Date().toISOString().split('T')[0];
       const saved = await saveClosing({
         month,
         year,
         doctor_id: row.doctor_id,
         case_count: row.case_count,
+        closing_date: todayStr,
         total_revenue: Number(row.total_revenue),
         total_lab_fees: Number(row.total_lab_fees),
         doctor_gross_earnings: Number(row.doctor_gross_earnings),
@@ -127,8 +142,12 @@ export default function AdminMonthlyClosure() {
         comment: state.comment.trim() || null,
         is_confirmed: false,
       });
-      await confirmClosing(saved.id, user.id);
-      await load();
+      const confirmed = await confirmClosing(saved.id, user.id);
+      // Update state immediately — no reload needed
+      setClosings((prev) => [...prev, confirmed]);
+      setClosingHistory((prev) => [confirmed, ...prev]);
+      setReopenedDoctors((prev) => { const next = new Set(prev); next.delete(row.doctor_id); return next; });
+      updateCard(row.doctor_id, { comment: '' });
     } catch (err: any) {
       updateCard(row.doctor_id, { error: err.message || 'Failed to confirm closing' });
     } finally {
@@ -136,13 +155,14 @@ export default function AdminMonthlyClosure() {
     }
   };
 
-  const handleReopen = async (closing: MonthlyClosing) => {
-    try {
-      await reopenClosing(closing.id);
-      await load();
-    } catch (err: any) {
-      setError(err.message || 'Failed to reopen closing');
-    }
+  const handleReopen = (row: MonthlySummaryRow) => {
+    // UI-only — next confirm will INSERT a new record
+    const recent = getClosing(row.doctor_id);
+    const delta = recent
+      ? Math.max(0, row.doctor_gross_earnings - (recent.doctor_gross_earnings ?? 0))
+      : row.doctor_gross_earnings;
+    setReopenedDoctors((prev) => new Set([...prev, row.doctor_id]));
+    updateCard(row.doctor_id, { amountToPay: delta > 0 ? delta.toString() : row.doctor_gross_earnings.toString() });
   };
 
   const handleAddSalary = async () => {
@@ -428,17 +448,18 @@ export default function AdminMonthlyClosure() {
           <div className="space-y-3">
             <h2 className="text-lg font-semibold">{t('Per-Doctor Closings')}</h2>
             {summary.map((row) => {
-              const closing = getClosing(row.doctor_id);
-              const state = cardStates[row.doctor_id] || { amountToPay: '', comment: '', saving: false, error: '' };
-              const isConfirmed = closing?.is_confirmed === true;
+              const closing      = getClosing(row.doctor_id);
+              const wasReopened  = reopenedDoctors.has(row.doctor_id);
+              const isConfirmed  = (closing?.is_confirmed === true) && !wasReopened;
+              const state        = cardStates[row.doctor_id] || { amountToPay: '', comment: '', saving: false, error: '' };
+              const history      = closingHistory.filter((h) => h.doctor_id === row.doctor_id);
 
-              // Freeze display at confirmation-time values; live RPC data only used before confirming
               const displayCases    = isConfirmed && closing ? (closing.case_count ?? row.case_count) : row.case_count;
-              const displayRevenue  = isConfirmed && closing ? closing.total_revenue        : row.total_revenue;
-              const displayLabFees  = isConfirmed && closing ? closing.total_lab_fees       : row.total_lab_fees;
+              const displayRevenue  = isConfirmed && closing ? closing.total_revenue         : row.total_revenue;
+              const displayLabFees  = isConfirmed && closing ? closing.total_lab_fees        : row.total_lab_fees;
               const displayEarnings = isConfirmed && closing ? closing.doctor_gross_earnings : row.doctor_gross_earnings;
-              const pendingCases    = isConfirmed && closing ? Math.max(0, row.case_count - (closing.case_count ?? row.case_count)) : 0;
-              const pendingRevenue  = isConfirmed && closing ? Math.max(0, row.total_revenue - closing.total_revenue) : 0;
+              const pendingCases    = closing ? Math.max(0, row.case_count - (closing.case_count ?? 0)) : 0;
+              const pendingRevenue  = closing ? Math.max(0, row.total_revenue - closing.total_revenue) : 0;
 
               return (
                 <Card
@@ -469,11 +490,11 @@ export default function AdminMonthlyClosure() {
                             : <Printer className="w-4 h-4 mr-1" />}
                           {printingId === row.doctor_id ? t('Loading...') : t('Print / PDF')}
                         </Button>
-                        {isConfirmed && closing && (
+                        {isConfirmed && (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleReopen(closing)}
+                            onClick={() => handleReopen(row)}
                           >
                             <Unlock className="w-4 h-4 mr-1" /> {t('Reopen')}
                           </Button>
@@ -520,31 +541,59 @@ export default function AdminMonthlyClosure() {
                       </div>
                     )}
 
-                    {/* Editable fields — locked when confirmed */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <Label className="text-xs">{t('Amount to Pay (EGP)')}</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={isConfirmed ? (closing?.amount_to_pay?.toString() ?? '') : state.amountToPay}
-                          onChange={(e) => !isConfirmed && updateCard(row.doctor_id, { amountToPay: e.target.value })}
-                          disabled={isConfirmed}
-                          className={isConfirmed ? 'bg-muted cursor-not-allowed' : ''}
-                        />
+                    {/* Editable fields — only shown when not confirmed */}
+                    {!isConfirmed && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t('Amount to Pay (EGP)')}</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={state.amountToPay}
+                            onChange={(e) => updateCard(row.doctor_id, { amountToPay: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t('Comment (optional)')}</Label>
+                          <Input
+                            placeholder="Admin note..."
+                            value={state.comment}
+                            onChange={(e) => updateCard(row.doctor_id, { comment: e.target.value })}
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">{t('Comment (optional)')}</Label>
-                        <Input
-                          placeholder="Admin note..."
-                          value={isConfirmed ? (closing?.comment ?? '') : state.comment}
-                          onChange={(e) => !isConfirmed && updateCard(row.doctor_id, { comment: e.target.value })}
-                          disabled={isConfirmed}
-                          className={isConfirmed ? 'bg-muted cursor-not-allowed' : ''}
-                        />
+                    )}
+
+                    {/* Payment timeline */}
+                    {history.length > 0 && (
+                      <div className="border-t pt-3 space-y-2">
+                        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                          <Clock className="w-3 h-3" /> Payment History
+                        </p>
+                        <div className="space-y-1.5">
+                          {history.map((h) => (
+                            <div key={h.id} className="flex items-center gap-2 text-xs flex-wrap">
+                              <span className="text-muted-foreground shrink-0">
+                                {h.confirmed_at ? formatDate(h.confirmed_at) : `${MONTH_NAMES[h.month - 1]} ${h.year}`}
+                              </span>
+                              <span className="text-muted-foreground">·</span>
+                              <span>{h.case_count ?? '?'} cases</span>
+                              <span className="text-muted-foreground">·</span>
+                              <span className="font-semibold text-green-700">{formatCurrency(h.amount_to_pay ?? 0)}</span>
+                              {h.comment && (
+                                <span className="text-muted-foreground italic truncate max-w-[150px]" title={h.comment}>
+                                  — {h.comment}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                          <div className="text-xs font-semibold text-muted-foreground pt-1 border-t">
+                            Total paid: {formatCurrency(history.reduce((s, h) => s + (h.amount_to_pay ?? 0), 0))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {!isConfirmed && (
                       <div className="mt-4">

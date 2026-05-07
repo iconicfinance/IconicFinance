@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   getMonthlySummary, getClosingsForMonth, getAllConfirmedClosings,
-  saveClosing, confirmClosing, reopenClosing,
+  saveClosing, confirmClosing,
   type MonthlySummaryRow, type MonthlyClosing,
 } from '@/services/monthlyClosings';
 import { getTransactionsByDoctor } from '@/services/transactions';
@@ -22,6 +22,12 @@ interface DoctorState {
   error: string;
 }
 
+// Returns the most recent closing for a doctor from a list
+const latestClosing = (list: MonthlyClosing[], doctorId: string): MonthlyClosing | undefined =>
+  [...list]
+    .filter((c) => c.doctor_id === doctorId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
 export default function AssistantClosing() {
   const { user } = useAuth();
   const { t, lang } = useLanguage();
@@ -29,24 +35,26 @@ export default function AssistantClosing() {
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const [summary, setSummary]         = useState<MonthlySummaryRow[]>([]);
-  const [closings, setClosings]       = useState<MonthlyClosing[]>([]);
+  const [summary, setSummary]               = useState<MonthlySummaryRow[]>([]);
+  const [closings, setClosings]             = useState<MonthlyClosing[]>([]);
   const [closingHistory, setClosingHistory] = useState<MonthlyClosing[]>([]);
-  const [cardStates, setCardStates]   = useState<Record<string, DoctorState>>({});
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState<string | null>(null);
-  const [printingId, setPrintingId]   = useState<string | null>(null);
+  const [cardStates, setCardStates]         = useState<Record<string, DoctorState>>({});
+  // Doctors whose closing was manually reopened (UI-only state, no DB change)
+  const [reopenedDoctors, setReopenedDoctors] = useState<Set<string>>(new Set());
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setReopenedDoctors(new Set());
     try {
       const [sumData, closingData, historyData] = await Promise.all([
         getMonthlySummary(year, month),
         getClosingsForMonth(year, month),
         getAllConfirmedClosings(),
       ]);
-      // Only show extern and custom doctors
       const filtered = sumData.filter((r) => r.doctor_type === 'extern' || r.doctor_type === 'custom');
       setSummary(filtered);
       setClosings(closingData);
@@ -54,17 +62,14 @@ export default function AssistantClosing() {
 
       const states: Record<string, DoctorState> = {};
       filtered.forEach((row) => {
-        const existing = closingData.find((c) => c.doctor_id === row.doctor_id);
-        // If this closing was previously confirmed then reopened, default amount = delta only
-        const wasReopened = existing?.confirmed_at != null && existing.is_confirmed === false;
-        const delta = wasReopened
-          ? Math.max(0, row.doctor_gross_earnings - (existing!.doctor_gross_earnings ?? 0))
-          : 0;
+        const recent = latestClosing(closingData, row.doctor_id);
+        // Default amount = delta since last confirmed closing (0 if no previous)
+        const delta = recent
+          ? Math.max(0, row.doctor_gross_earnings - (recent.doctor_gross_earnings ?? 0))
+          : row.doctor_gross_earnings;
         states[row.doctor_id] = {
-          amountToPay: wasReopened
-            ? delta.toString()
-            : existing?.amount_to_pay?.toString() ?? row.doctor_gross_earnings.toString(),
-          comment: existing?.comment ?? '',
+          amountToPay: recent ? delta.toString() : row.doctor_gross_earnings.toString(),
+          comment: '',
           saving: false,
           error: '',
         };
@@ -85,29 +90,30 @@ export default function AssistantClosing() {
     const state = cardStates[row.doctor_id];
     updateState(row.doctor_id, { saving: true, error: '' });
     try {
-      // Upsert the closing record
-      const closing = await saveClosing({
+      const todayStr = new Date().toISOString().split('T')[0];
+      // Always INSERT a new record — each payment is its own history entry
+      const saved = await saveClosing({
         month, year,
         doctor_id: row.doctor_id,
         case_count: row.case_count,
+        closing_date: todayStr,
         total_revenue: row.total_revenue,
         total_lab_fees: row.total_lab_fees,
         doctor_gross_earnings: row.doctor_gross_earnings,
         clinic_remaining_share: null,
-        amount_to_pay: parseFloat(state.amountToPay) || row.doctor_gross_earnings,
+        amount_to_pay: parseFloat(state.amountToPay) || 0,
         comment: state.comment || null,
         is_confirmed: false,
       });
+      const confirmed = await confirmClosing(saved.id, user.id);
 
-      // Confirm it — pass the actual logged-in user's ID (not an empty string)
-      const confirmed = await confirmClosing(closing.id, user.id);
+      // Update state immediately — no reload needed
+      setClosings((prev) => [...prev, confirmed]);
+      setClosingHistory((prev) => [confirmed, ...prev]);
+      setReopenedDoctors((prev) => { const next = new Set(prev); next.delete(row.doctor_id); return next; });
 
-      setClosings((prev) => {
-        const exists = prev.some((c) => c.doctor_id === row.doctor_id);
-        return exists
-          ? prev.map((c) => (c.doctor_id === row.doctor_id ? confirmed : c))
-          : [...prev, confirmed];
-      });
+      // Reset amount for next cycle (delta will now be 0 since we just closed everything)
+      updateState(row.doctor_id, { comment: '' });
     } catch (e: any) {
       updateState(row.doctor_id, { error: e.message || 'Failed to save' });
     } finally {
@@ -115,21 +121,14 @@ export default function AssistantClosing() {
     }
   };
 
-  const handleReopen = async (row: MonthlySummaryRow) => {
-    const closing = closings.find((c) => c.doctor_id === row.doctor_id);
-    if (!closing) return;
-    updateState(row.doctor_id, { saving: true, error: '' });
-    try {
-      const reopened = await reopenClosing(closing.id);
-      setClosings((prev) => prev.map((c) => (c.id === reopened.id ? reopened : c)));
-      // Default amount = only the new earnings since the last confirmed closing
-      const delta = Math.max(0, row.doctor_gross_earnings - (closing.doctor_gross_earnings ?? 0));
-      updateState(row.doctor_id, { amountToPay: delta.toString() });
-    } catch (e: any) {
-      updateState(row.doctor_id, { error: e.message || 'Failed to reopen' });
-    } finally {
-      updateState(row.doctor_id, { saving: false });
-    }
+  const handleReopen = (row: MonthlySummaryRow) => {
+    // UI-only — does NOT touch the DB. Next confirm will INSERT a new record.
+    const recent = latestClosing(closings, row.doctor_id);
+    const delta = recent
+      ? Math.max(0, row.doctor_gross_earnings - (recent.doctor_gross_earnings ?? 0))
+      : row.doctor_gross_earnings;
+    setReopenedDoctors((prev) => new Set([...prev, row.doctor_id]));
+    updateState(row.doctor_id, { amountToPay: delta > 0 ? delta.toString() : '0', error: '' });
   };
 
   const handlePrint = async (row: MonthlySummaryRow) => {
@@ -139,7 +138,7 @@ export default function AssistantClosing() {
       const to   = new Date(year, month, 1);
       const txs  = await getTransactionsByDoctor(row.doctor_id, from, to);
       const state   = cardStates[row.doctor_id];
-      const closing = closings.find((c) => c.doctor_id === row.doctor_id);
+      const closing = latestClosing(closings, row.doctor_id);
       const fmt = (n: number | null | undefined) =>
         n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const monthName = MONTH_NAMES[month - 1];
@@ -165,7 +164,6 @@ export default function AssistantClosing() {
 <h1>Closing Report — ${row.doctor_name}</h1>
 <p style="color:#666;font-size:13px">${monthName} ${year} · ${typeLabel} (${pct}%)</p>
 ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
-
 <h2>Transactions</h2>
 <table>
   <tr><th>Date</th><th>Patient</th><th>Method</th><th class="right">Amount</th><th class="right">Lab Fees</th></tr>
@@ -177,14 +175,13 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
     <td class="right">${tx.has_lab_fees ? 'EGP ' + fmt(tx.lab_fees_amount) : '—'}</td>
   </tr>`).join('')}
 </table>
-
 <div class="summary">
   <div class="row"><span>Cases</span><span>${row.case_count}</span></div>
   <div class="row"><span>Total Revenue</span><span>EGP ${fmt(row.total_revenue)}</span></div>
   <div class="row"><span>Lab Fees Deducted</span><span>EGP ${fmt(row.total_lab_fees)}</span></div>
   <div class="row"><span>Net Revenue</span><span>EGP ${fmt(row.total_revenue - row.total_lab_fees)}</span></div>
   <div class="row"><span>Doctor Share (${pct}%)</span><span>EGP ${fmt(row.doctor_gross_earnings)}</span></div>
-  <div class="row total"><span>Amount to Pay</span><span>EGP ${fmt(parseFloat(state.amountToPay) || row.doctor_gross_earnings)}</span></div>
+  <div class="row total"><span>Amount to Pay (this session)</span><span>EGP ${fmt(parseFloat(state.amountToPay) || 0)}</span></div>
   ${state.comment ? `<p style="font-size:12px;color:#666;margin-top:8px">Note: ${state.comment}</p>` : ''}
 </div>
 <script>window.onload=()=>{window.print();}</script>
@@ -192,7 +189,7 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
 
       const w = window.open('', '_blank');
       if (w) { w.document.write(html); w.document.close(); }
-    } catch (e) { /* ignore print errors */ }
+    } catch (e) { /* ignore */ }
     finally { setPrintingId(null); }
   };
 
@@ -246,31 +243,29 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
         </div>
       )}
 
-      {/* Doctor cards */}
       {!loading && summary.length === 0 && !error && (
         <p className="text-muted-foreground text-sm">{t('No extern or custom doctors found for this month.')}</p>
       )}
 
       {summary.map((row) => {
-        const state   = cardStates[row.doctor_id];
-        const closing = closings.find((c) => c.doctor_id === row.doctor_id);
-        const locked  = closing?.is_confirmed ?? false;
-        const pct     = row.doctor_type === 'custom' ? (row.custom_percentage ?? 40) : 40;
-        const typeLabel = row.doctor_type === 'custom' ? (row.custom_label || t('Custom')) : `${t('Extern')} (${pct}%)`;
+        const state          = cardStates[row.doctor_id];
+        const recent         = latestClosing(closings, row.doctor_id);
+        const wasReopened    = reopenedDoctors.has(row.doctor_id);
+        const locked         = (recent?.is_confirmed ?? false) && !wasReopened;
+        const pct            = row.doctor_type === 'custom' ? (row.custom_percentage ?? 40) : 40;
+        const typeLabel      = row.doctor_type === 'custom' ? (row.custom_label || t('Custom')) : `${t('Extern')} (${pct}%)`;
+        const history        = closingHistory.filter((h) => h.doctor_id === row.doctor_id);
         if (!state) return null;
 
-        // Payment history for this doctor (all confirmed closings, most recent first)
-        const history = closingHistory.filter((h) => h.doctor_id === row.doctor_id);
+        // When locked show the frozen stats from the most recent confirmed record
+        const displayCases    = locked && recent ? (recent.case_count ?? row.case_count) : row.case_count;
+        const displayRevenue  = locked && recent ? recent.total_revenue         : row.total_revenue;
+        const displayLabFees  = locked && recent ? recent.total_lab_fees        : row.total_lab_fees;
+        const displayEarnings = locked && recent ? recent.doctor_gross_earnings : row.doctor_gross_earnings;
 
-        // When locked, show frozen numbers saved at confirmation time
-        const displayCases    = locked && closing ? (closing.case_count ?? row.case_count) : row.case_count;
-        const displayRevenue  = locked && closing ? closing.total_revenue        : row.total_revenue;
-        const displayLabFees  = locked && closing ? closing.total_lab_fees       : row.total_lab_fees;
-        const displayEarnings = locked && closing ? closing.doctor_gross_earnings : row.doctor_gross_earnings;
-
-        // New transactions added after this closing was confirmed
-        const pendingCases   = locked && closing ? Math.max(0, row.case_count - (closing.case_count ?? row.case_count)) : 0;
-        const pendingRevenue = locked && closing ? Math.max(0, row.total_revenue - closing.total_revenue) : 0;
+        // New cases since the most recent confirmed closing
+        const pendingCases   = recent ? Math.max(0, row.case_count - (recent.case_count ?? 0)) : 0;
+        const pendingRevenue = recent ? Math.max(0, row.total_revenue - recent.total_revenue) : 0;
 
         return (
           <Card key={row.doctor_id} className={locked ? 'border-green-200 bg-green-50/30' : ''}>
@@ -300,7 +295,7 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Stats — frozen at confirmation time when locked */}
+              {/* Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <p className="text-xs text-muted-foreground">{t('Cases')}</p>
@@ -320,8 +315,8 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
                 </div>
               </div>
 
-              {/* New cases added after this closing was confirmed */}
-              {pendingCases > 0 && (
+              {/* New cases since last closing */}
+              {locked && pendingCases > 0 && (
                 <div className="border border-amber-300 bg-amber-50 rounded-lg px-4 py-3 space-y-1">
                   <p className="text-sm font-semibold text-amber-800">
                     {pendingCases} {t('new case(s) since this closing')}
@@ -332,33 +327,31 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
                 </div>
               )}
 
-              {state.error && (
-                <p className="text-sm text-red-600">{state.error}</p>
-              )}
+              {state.error && <p className="text-sm text-red-600">{state.error}</p>}
 
               {/* Amount to pay + comment */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">{t('Amount to Pay (EGP)')}</Label>
-                  <Input
-                    type="number" min="0" step="0.01"
-                    value={state.amountToPay}
-                    onChange={(e) => updateState(row.doctor_id, { amountToPay: e.target.value })}
-                    disabled={locked}
-                    className="h-9"
-                  />
+              {!locked && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('Amount to Pay (EGP)')}</Label>
+                    <Input
+                      type="number" min="0" step="0.01"
+                      value={state.amountToPay}
+                      onChange={(e) => updateState(row.doctor_id, { amountToPay: e.target.value })}
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('Comment (optional)')}</Label>
+                    <Input
+                      placeholder={t('Admin note...')}
+                      value={state.comment}
+                      onChange={(e) => updateState(row.doctor_id, { comment: e.target.value })}
+                      className="h-9"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">{t('Comment (optional)')}</Label>
-                  <Input
-                    placeholder={t('Admin note...')}
-                    value={state.comment}
-                    onChange={(e) => updateState(row.doctor_id, { comment: e.target.value })}
-                    disabled={locked}
-                    className="h-9"
-                  />
-                </div>
-              </div>
+              )}
 
               {/* Payment timeline */}
               {history.length > 0 && (
@@ -368,8 +361,8 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
                   </p>
                   <div className="space-y-1.5">
                     {history.map((h) => (
-                      <div key={h.id} className="flex items-center gap-2 text-xs">
-                        <span className="text-muted-foreground w-24 shrink-0">
+                      <div key={h.id} className="flex items-center gap-2 text-xs flex-wrap">
+                        <span className="text-muted-foreground shrink-0">
                           {h.confirmed_at ? formatDate(h.confirmed_at) : `${MONTH_NAMES[h.month - 1]} ${h.year}`}
                         </span>
                         <span className="text-muted-foreground">·</span>
@@ -377,32 +370,26 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
                         <span className="text-muted-foreground">·</span>
                         <span className="font-semibold text-green-700">{formatCurrency(h.amount_to_pay ?? 0)}</span>
                         {h.comment && (
-                          <span className="text-muted-foreground truncate max-w-[120px]" title={h.comment}>
+                          <span className="text-muted-foreground italic truncate max-w-[150px]" title={h.comment}>
                             — {h.comment}
                           </span>
                         )}
                       </div>
                     ))}
+                    <div className="text-xs font-semibold text-muted-foreground pt-1 border-t">
+                      {t('Total paid')}: {formatCurrency(history.reduce((s, h) => s + (h.amount_to_pay ?? 0), 0))}
+                    </div>
                   </div>
                 </div>
               )}
 
               {/* Action button */}
               {locked ? (
-                <Button
-                  variant="outline" size="sm"
-                  onClick={() => handleReopen(row)}
-                  disabled={state.saving}
-                >
-                  {state.saving ? <Loader className="w-4 h-4 me-2 animate-spin" /> : <Unlock className="w-4 h-4 me-2" />}
-                  {t('Reopen')}
+                <Button variant="outline" size="sm" onClick={() => handleReopen(row)}>
+                  <Unlock className="w-4 h-4 me-2" /> {t('Reopen')}
                 </Button>
               ) : (
-                <Button
-                  size="sm"
-                  onClick={() => handleConfirm(row)}
-                  disabled={state.saving}
-                >
+                <Button size="sm" onClick={() => handleConfirm(row)} disabled={state.saving}>
                   {state.saving ? <Loader className="w-4 h-4 me-2 animate-spin" /> : <Lock className="w-4 h-4 me-2" />}
                   {t('Confirm & Lock')}
                 </Button>
