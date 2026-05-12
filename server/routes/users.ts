@@ -35,7 +35,7 @@ export const handleCreateUser: RequestHandler = async (req, res) => {
       username,
       full_name,
       role,
-      doctor_id: doctor_id || "",
+      doctor_id: doctor_id || null,
     },
   });
 

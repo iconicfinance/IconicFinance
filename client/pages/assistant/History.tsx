@@ -4,7 +4,7 @@ import { AlertCircle, Loader, Search, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getTransactionsByDateRange, Transaction } from '@/services/transactions';
+import { getTransactionsByDateRange, type Transaction } from '@/services/transactions';
 import { getActiveDoctors, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';

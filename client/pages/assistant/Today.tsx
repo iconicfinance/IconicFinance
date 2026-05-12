@@ -5,45 +5,89 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PaymentMethodIcon } from '@/components/PaymentMethodIcon';
-import { getTodayTransactions, type Transaction } from '@/services/transactions';
+import { getTodayTransactions, getTransactionsByDateRange, type Transaction } from '@/services/transactions';
 import { getActiveDoctors, type Doctor } from '@/services/doctors';
-import { formatCurrency, formatTime, formatPaymentMethod } from '@/lib/utils';
+import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
+
+const PAGE_SIZE = 30;
 
 export default function AssistantToday() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [doctors, setDoctors]           = useState<Doctor[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState<string | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  // Today's transactions — used for summary cards only
+  const [todayTransactions, setTodayTransactions] = useState<Transaction[]>([]);
+  const [doctors, setDoctors]                     = useState<Doctor[]>([]);
+  const [loading, setLoading]                     = useState(true);
+  const [error, setError]                         = useState<string | null>(null);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [txData, docData] = await Promise.allSettled([
-        getTodayTransactions(),
-        getActiveDoctors(),
-      ]);
-      if (txData.status === 'fulfilled')  setTransactions(txData.value);
-      if (docData.status === 'fulfilled') setDoctors(docData.value);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load transactions');
-    } finally {
-      setLoading(false);
-    }
+  // Table shows last 30 days with pagination
+  const [tableTransactions, setTableTransactions] = useState<Transaction[]>([]);
+  const [tableOffset, setTableOffset]             = useState(0);
+  const [tableHasMore, setTableHasMore]           = useState(false);
+  const [tableLoadingMore, setTableLoadingMore]   = useState(false);
+
+  const getTableRange = () => {
+    const to = new Date();
+    to.setHours(23, 59, 59, 999);
+    const from = new Date();
+    from.setDate(from.getDate() - 30);
+    from.setHours(0, 0, 0, 0);
+    return { from, to };
   };
 
   const getDoctorName = (id: string | null) =>
     doctors.find((d) => d.id === id)?.name || '—';
 
-  const payments   = transactions.filter((tx) => tx.type === 'payment_in');
-  const cash       = payments.filter((tx) => tx.payment_method === 'cash').reduce((s, tx) => s + Number(tx.final_amount), 0);
-  const vodafone   = payments.filter((tx) => tx.payment_method === 'vodafone_cash').reduce((s, tx) => s + Number(tx.final_amount), 0);
-  const instapay   = payments.filter((tx) => tx.payment_method === 'instapay').reduce((s, tx) => s + Number(tx.final_amount), 0);
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    setTableOffset(0);
+    const { from, to } = getTableRange();
+
+    const [todayResult, tableResult, docResult] = await Promise.allSettled([
+      getTodayTransactions(),
+      getTransactionsByDateRange(from, to, { limit: PAGE_SIZE }),
+      getActiveDoctors(),
+    ]);
+
+    if (todayResult.status === 'fulfilled') setTodayTransactions(todayResult.value);
+    if (tableResult.status === 'fulfilled') {
+      setTableTransactions(tableResult.value);
+      setTableHasMore(tableResult.value.length === PAGE_SIZE);
+    } else {
+      setError((tableResult.reason as any)?.message || 'Failed to load transactions');
+    }
+    if (docResult.status === 'fulfilled') setDoctors(docResult.value);
+
+    setLoading(false);
+  };
+
+  const handleLoadMore = async () => {
+    if (tableLoadingMore) return;
+    setTableLoadingMore(true);
+    const newOffset = tableOffset + PAGE_SIZE;
+    const { from, to } = getTableRange();
+    try {
+      const more = await getTransactionsByDateRange(from, to, { limit: PAGE_SIZE, offset: newOffset });
+      setTableTransactions((prev) => [...prev, ...more]);
+      setTableOffset(newOffset);
+      setTableHasMore(more.length === PAGE_SIZE);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load more');
+    } finally {
+      setTableLoadingMore(false);
+    }
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  // Summary cards — TODAY only
+  const payments  = todayTransactions.filter((tx) => tx.type === 'payment_in');
+  const cash      = payments.filter((tx) => tx.payment_method === 'cash').reduce((s, tx) => s + Number(tx.final_amount), 0);
+  const vodafone  = payments.filter((tx) => tx.payment_method === 'vodafone_cash').reduce((s, tx) => s + Number(tx.final_amount), 0);
+  const instapay  = payments.filter((tx) => tx.payment_method === 'instapay').reduce((s, tx) => s + Number(tx.final_amount), 0);
 
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -66,7 +110,7 @@ export default function AssistantToday() {
         </div>
       )}
 
-      {/* Summary Cards */}
+      {/* Summary Cards — today only */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-4 pb-4">
@@ -112,13 +156,14 @@ export default function AssistantToday() {
         </Card>
       </div>
 
-      {/* Transactions Table */}
+      {/* Transactions Table — last 30 days */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
             {t('All Transactions')}
-            <Badge variant="secondary" className="ms-auto">{transactions.length}</Badge>
+            <span className="text-xs text-muted-foreground font-normal ms-1">(last 30 days)</span>
+            <Badge variant="secondary" className="ms-auto">{tableTransactions.length}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -127,82 +172,99 @@ export default function AssistantToday() {
               <Loader className="w-6 h-6 animate-spin text-primary" />
               <span className="ms-2 text-muted-foreground">{t('Loading...')}</span>
             </div>
-          ) : transactions.length === 0 ? (
+          ) : tableTransactions.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <p>{t('No transactions yet today.')}</p>
+              <p>{t('No transactions in the last 30 days.')}</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="text-sm" style={{ minWidth: '750px', width: '100%' }}>
-                <thead>
-                  <tr className="border-b bg-muted/40">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Time')}</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Type')}</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((tx) => (
-                    <tr
-                      key={tx.id}
-                      className={`border-b last:border-0 hover:bg-muted/20 transition-colors ${
-                        tx.lab_fees_pending ? 'bg-amber-50 hover:bg-amber-100' : ''
-                      }`}
-                    >
-                      <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{formatTime(tx.created_at)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {tx.type === 'payment_in' ? (
-                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{t('Payment In')}</Badge>
-                        ) : (
-                          <Badge className="bg-red-100 text-red-800 hover:bg-red-100">{t('Expense Out')}</Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {tx.patient_name ? (
-                          <Link
-                            to="/assistant/history"
-                            state={{ patientName: tx.patient_name }}
-                            className="text-primary underline-offset-2 hover:underline font-medium"
-                          >
-                            {tx.patient_name}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
-                        {tx.type === 'payment_in' ? getDoctorName(tx.doctor_id) : '—'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
-                      <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {tx.type === 'payment_in' ? (
-                          tx.lab_fees_pending ? (
-                            <span className="flex items-center gap-1 text-amber-600 font-medium">
-                              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {t('Pending')}
-                            </span>
-                          ) : tx.has_lab_fees ? (
-                            <span className="text-green-600">{formatCurrency(tx.lab_fees_amount)}</span>
+            <>
+              <div className="overflow-x-auto">
+                <table className="text-sm" style={{ minWidth: '750px', width: '100%' }}>
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Date')}</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Time')}</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Type')}</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
+                      <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableTransactions.map((tx) => (
+                      <tr
+                        key={tx.id}
+                        className={`border-b last:border-0 hover:bg-muted/20 transition-colors ${
+                          tx.lab_fees_pending ? 'bg-amber-50 hover:bg-amber-100' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{formatDate(tx.created_at)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{formatTime(tx.created_at)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {tx.type === 'payment_in' ? (
+                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{t('Payment In')}</Badge>
+                          ) : (
+                            <Badge className="bg-red-100 text-red-800 hover:bg-red-100">{t('Expense Out')}</Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {tx.patient_name ? (
+                            <Link
+                              to="/assistant/history"
+                              state={{ patientName: tx.patient_name }}
+                              className="text-primary underline-offset-2 hover:underline font-medium"
+                            >
+                              {tx.patient_name}
+                            </Link>
                           ) : (
                             <span className="text-muted-foreground">—</span>
-                          )
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground" style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {tx.expense_description || '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                          {tx.type === 'payment_in' ? getDoctorName(tx.doctor_id) : '—'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
+                        <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {tx.type === 'payment_in' ? (
+                            tx.lab_fees_pending ? (
+                              <span className="flex items-center gap-1 text-amber-600 font-medium">
+                                <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {t('Pending')}
+                              </span>
+                            ) : tx.has_lab_fees ? (
+                              <span className="text-green-600">{formatCurrency(tx.lab_fees_amount)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground" style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {tx.expense_description || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Load More */}
+              {tableHasMore && (
+                <div className="flex justify-center py-4 border-t">
+                  <Button variant="outline" size="sm" onClick={handleLoadMore} disabled={tableLoadingMore}>
+                    {tableLoadingMore ? (
+                      <><Loader className="w-4 h-4 me-2 animate-spin" /> {t('Loading...')}</>
+                    ) : (
+                      t('Load 30 more')
+                    )}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -223,7 +285,7 @@ export default function AssistantToday() {
         </button>
       </div>
 
-      {/* Mobile FABs — Banknote (payment received) + ShoppingBag (expense paid) */}
+      {/* Mobile FABs */}
       <div className="sm:hidden fixed bottom-20 end-4 flex flex-row gap-3 z-40">
         <button
           onClick={() => navigate('/assistant/add-expense')}

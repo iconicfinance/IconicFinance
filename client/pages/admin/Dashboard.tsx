@@ -23,7 +23,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { getTransactionsByDateRange, updateLabFees, deleteTransaction, Transaction } from '@/services/transactions';
+import { getTransactionsByDateRange, updateLabFees, deleteTransaction, type Transaction } from '@/services/transactions';
+
+const PAGE_SIZE = 30;
 import { getAllDoctors, Doctor } from '@/services/doctors';
 import {
   formatCurrency,
@@ -46,9 +48,12 @@ export default function AdminDashboard() {
   const [methodFilter, setMethodFilter] = useState('all');
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [doctors, setDoctors]           = useState<Doctor[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState<string | null>(null);
+  const [txOffset, setTxOffset]         = useState(0);
+  const [hasMore, setHasMore]           = useState(false);
+  const [loadingMore, setLoadingMore]   = useState(false);
 
   const [labFeeModal, setLabFeeModal] = useState<Transaction | null>(null);
   const [labFeeInput, setLabFeeInput] = useState('');
@@ -60,19 +65,48 @@ export default function AdminDashboard() {
   const [deleting, setDeleting] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
+  const buildRange = () => {
+    const from = new Date(fromDate);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(toDate);
+    to.setDate(to.getDate() + 1);
+    to.setHours(0, 0, 0, 0);
+    return { from, to };
+  };
+
+  // Paginated load — used on mount and Refresh button
   const load = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    setLoading(true);
+    setError(null);
+    setTxOffset(0);
     try {
-      setLoading(true);
-      setError(null);
-      const from = new Date(fromDate);
-      from.setHours(0, 0, 0, 0);
-      const to = new Date(toDate);
-      to.setDate(to.getDate() + 1);
-      to.setHours(0, 0, 0, 0);
-
+      const { from, to } = buildRange();
       const [txData, docData] = await Promise.all([
-        getTransactionsByDateRange(from, to),
+        getTransactionsByDateRange(from, to, { limit: PAGE_SIZE }),
+        getAllDoctors(),
+      ]);
+      setTransactions(txData);
+      setDoctors(docData);
+      setHasMore(txData.length === PAGE_SIZE);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }, [fromDate, toDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load all — used by Apply filter button (shows every record for the period)
+  const applyFilter = async () => {
+    if (!fromDate || !toDate) return;
+    setLoading(true);
+    setError(null);
+    setTxOffset(0);
+    setHasMore(false);
+    try {
+      const { from, to } = buildRange();
+      const [txData, docData] = await Promise.all([
+        getTransactionsByDateRange(from, to), // no pagination limit
         getAllDoctors(),
       ]);
       setTransactions(txData);
@@ -82,7 +116,25 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate]);
+  };
+
+  // Append next page
+  const handleLoadMore = async () => {
+    if (loadingMore || !fromDate || !toDate) return;
+    setLoadingMore(true);
+    const newOffset = txOffset + PAGE_SIZE;
+    try {
+      const { from, to } = buildRange();
+      const more = await getTransactionsByDateRange(from, to, { limit: PAGE_SIZE, offset: newOffset });
+      setTransactions((prev) => [...prev, ...more]);
+      setTxOffset(newOffset);
+      setHasMore(more.length === PAGE_SIZE);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load more');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -201,7 +253,7 @@ export default function AdminDashboard() {
                 </SelectContent>
               </Select>
             </div>
-            <Button size="sm" onClick={load} disabled={loading}>Apply</Button>
+            <Button size="sm" onClick={applyFilter} disabled={loading}>Apply</Button>
           </div>
         </CardContent>
       </Card>
@@ -298,6 +350,7 @@ export default function AdminDashboard() {
           ) : filtered.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">No transactions found.</div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="text-sm" style={{ minWidth: '1100px', width: '100%' }}>
                 <thead>
@@ -399,6 +452,20 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+
+            {/* Load More */}
+            {hasMore && (
+              <div className="flex justify-center py-4 border-t">
+                <Button variant="outline" size="sm" onClick={handleLoadMore} disabled={loadingMore}>
+                  {loadingMore ? (
+                    <><Loader className="w-4 h-4 mr-2 animate-spin" /> Loading...</>
+                  ) : (
+                    'Load 30 more'
+                  )}
+                </Button>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>

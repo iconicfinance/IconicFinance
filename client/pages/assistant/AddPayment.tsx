@@ -404,7 +404,7 @@ export default function AssistantAddPayment() {
               </Select>
             </div>
 
-            {/* ── Outstanding balance alert ── */}
+            {/* ── Total Clinical / Outstanding balance ── */}
             {balanceLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader className="w-4 h-4 animate-spin" /> {t('Checking balance...')}</div>}
 
             {!balanceLoading && activeBalance && (
@@ -419,7 +419,6 @@ export default function AssistantAddPayment() {
                     </p>
                   </div>
                 </div>
-
                 {editingTotal ? (
                   <div className="flex items-center gap-2">
                     <Input
@@ -438,7 +437,6 @@ export default function AssistantAddPayment() {
               </div>
             )}
 
-            {/* ── Total Clinical (only when no active balance) ── */}
             {!balanceLoading && !activeBalance && (selectedPatient || creatingNew) && (
               <div className="space-y-1.5">
                 <Label>{t('Total Clinical (EGP)')}</Label>
@@ -450,82 +448,6 @@ export default function AssistantAddPayment() {
                 <p className="text-xs text-muted-foreground">
                   Enter the full treatment cost. If patient pays less today, the difference is tracked as a remaining balance.
                 </p>
-              </div>
-            )}
-
-            {/* ── Pay Today ── */}
-            <div className="space-y-1.5">
-              <Label>
-                {t('Pay Today (EGP)')}
-                <span className="text-muted-foreground text-xs ms-1">({t('Leave 0 if not paying today')})</span>
-              </Label>
-              <Input
-                type="number" min="0" step="0.01" placeholder="0.00"
-                value={payToday}
-                onChange={(e) => setPayToday(e.target.value)}
-              />
-            </div>
-
-            {/* Zero-payment info note */}
-            {payTodayNum === 0 && (totalClinicalNum > 0 || activeBalance) && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
-                {activeBalance
-                  ? t('No payment today — balance total will be updated if changed.')
-                  : t('No payment today — balance of') + ' ' + formatCurrency(totalClinicalNum) + ' ' + t('will be recorded as outstanding.')}
-              </div>
-            )}
-
-            {/* ── Payment Method — always visible, required only when payToday > 0 ── */}
-            <div className="space-y-1.5">
-              <Label>
-                {t('Payment Method')}
-                {payTodayNum > 0 && ' *'}
-              </Label>
-              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as any)}>
-                <SelectTrigger><SelectValue placeholder={t('Select payment method')} /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">{t('Cash')}</SelectItem>
-                  <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
-                  <SelectItem value="instapay">{t('Instapay')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* ── Total Due Today (computed summary) ── */}
-            {payTodayNum > 0 && paymentMethod && (
-              <div className="rounded-lg border bg-muted/40 px-4 py-3 space-y-1">
-                {paymentMethod === 'vodafone_cash' ? (
-                  <>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Pay Today</span>
-                      <span>{formatCurrency(payTodayNum)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Vodafone fee (1%)</span>
-                      <span className="text-blue-600">+{formatCurrency(vodafoneFee)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-semibold border-t pt-1 mt-1">
-                      <span>{t('Total Due Today')}</span>
-                      <span className="text-primary">{formatCurrency(finalDueToday)}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">1% fee is charged to patient, not deducted from their balance.</p>
-                  </>
-                ) : (
-                  <div className="flex justify-between text-sm font-semibold">
-                    <span>{t('Total Due Today')}</span>
-                    <span className="text-primary">{formatCurrency(finalDueToday)}</span>
-                  </div>
-                )}
-
-                {/* Remaining after payment */}
-                {(activeBalance || totalClinicalNum > 0) && (
-                  <div className="flex justify-between text-sm border-t pt-1 mt-1">
-                    <span className="text-muted-foreground">{t('Remaining after payment')}</span>
-                    <span className={afterPayment > 0 ? 'text-amber-600 font-semibold' : 'text-green-600 font-semibold'}>
-                      {afterPayment > 0 ? formatCurrency(afterPayment) : t('Fully paid ✓')}
-                    </span>
-                  </div>
-                )}
               </div>
             )}
 
@@ -563,11 +485,84 @@ export default function AssistantAddPayment() {
               )}
             </div>
 
-            {/* ── Description ── */}
+            {/* ── Notes ── */}
             <div className="space-y-1.5">
               <Label htmlFor="description">{t('Notes (optional)')}</Label>
               <Input id="description" placeholder="Any notes about this visit..." value={description} onChange={(e) => setDescription(e.target.value)} />
             </div>
+
+            {/* ── Pay Today ── */}
+            <div className="space-y-1.5">
+              <Label>
+                {t('Pay Today (EGP)')}
+                <span className="text-muted-foreground text-xs ms-1">({t('Leave 0 if not paying today')})</span>
+              </Label>
+              <Input
+                type="number" min="0" step="0.01" placeholder="0.00"
+                value={payToday}
+                onChange={(e) => setPayToday(e.target.value)}
+              />
+            </div>
+
+            {payTodayNum === 0 && (totalClinicalNum > 0 || activeBalance) && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+                {activeBalance
+                  ? t('No payment today — balance total will be updated if changed.')
+                  : t('No payment today — balance of') + ' ' + formatCurrency(totalClinicalNum) + ' ' + t('will be recorded as outstanding.')}
+              </div>
+            )}
+
+            {/* ── Payment Method ── */}
+            <div className="space-y-1.5">
+              <Label>
+                {t('Payment Method')}
+                {payTodayNum > 0 && ' *'}
+              </Label>
+              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as any)}>
+                <SelectTrigger><SelectValue placeholder={t('Select payment method')} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">{t('Cash')}</SelectItem>
+                  <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
+                  <SelectItem value="instapay">{t('Instapay')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* ── Total Due Today summary ── */}
+            {payTodayNum > 0 && paymentMethod && (
+              <div className="rounded-lg border bg-muted/40 px-4 py-3 space-y-1">
+                {paymentMethod === 'vodafone_cash' ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Pay Today</span>
+                      <span>{formatCurrency(payTodayNum)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Vodafone fee (1%)</span>
+                      <span className="text-blue-600">+{formatCurrency(vodafoneFee)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-semibold border-t pt-1 mt-1">
+                      <span>{t('Total Due Today')}</span>
+                      <span className="text-primary">{formatCurrency(finalDueToday)}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">1% fee is charged to patient, not deducted from their balance.</p>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-sm font-semibold">
+                    <span>{t('Total Due Today')}</span>
+                    <span className="text-primary">{formatCurrency(finalDueToday)}</span>
+                  </div>
+                )}
+                {(activeBalance || totalClinicalNum > 0) && (
+                  <div className="flex justify-between text-sm border-t pt-1 mt-1">
+                    <span className="text-muted-foreground">{t('Remaining after payment')}</span>
+                    <span className={afterPayment > 0 ? 'text-amber-600 font-semibold' : 'text-green-600 font-semibold'}>
+                      {afterPayment > 0 ? formatCurrency(afterPayment) : t('Fully paid ✓')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-3 pt-2">
               <Button type="button" variant="outline" onClick={() => navigate(successRoute)} className="flex-1">{t('Cancel')}</Button>

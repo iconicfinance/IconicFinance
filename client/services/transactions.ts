@@ -38,15 +38,25 @@ export const getTodayTransactions = async (): Promise<Transaction[]> => {
   return data || [];
 };
 
-export const getTransactionsByDateRange = async (from: Date, to: Date): Promise<Transaction[]> => {
+export const getTransactionsByDateRange = async (
+  from: Date,
+  to: Date,
+  pagination?: { limit: number; offset?: number }
+): Promise<Transaction[]> => {
   const supabase = getSupabaseClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('transactions')
     .select('*')
     .gte('created_at', from.toISOString())
     .lt('created_at', to.toISOString())
     .order('created_at', { ascending: false });
 
+  if (pagination) {
+    const start = pagination.offset ?? 0;
+    query = query.range(start, start + pagination.limit - 1);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return data || [];
 };
