@@ -53,18 +53,15 @@ export const createUser = async (data: {
   role: 'admin' | 'doctor' | 'assistant';
   doctor_id: string | null;
 }): Promise<User> => {
-  const response = await fetch('/api/users', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+  const supabase = getSupabaseClient();
+  const { data: result, error } = await supabase.rpc('create_clinic_user', {
+    p_username:   data.username,
+    p_full_name:  data.full_name,
+    p_password:   data.password,
+    p_role:       data.role,
+    p_doctor_id:  data.doctor_id || null,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || 'Failed to create user');
-  }
-
+  if (error) throw new Error(error.message);
   return result as User;
 };
 
