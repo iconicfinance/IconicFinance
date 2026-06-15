@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { getTransactionsByDoctor, Transaction } from '@/services/transactions';
 import { getConfirmedClosingsByDoctor, MonthlyClosing } from '@/services/monthlyClosings';
+import { getBalancesForPatientDoctorPairs, type PatientBalance } from '@/services/patientBalance';
 import {
   formatCurrency,
   formatDate,
@@ -34,6 +35,7 @@ export default function DoctorDashboard() {
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [closings, setClosings] = useState<MonthlyClosing[]>([]);
+  const [balanceMap, setBalanceMap] = useState<Map<string, PatientBalance>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,6 +75,15 @@ export default function DoctorDashboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    getBalancesForPatientDoctorPairs(
+      transactions.map((tx) => ({ patient_id: tx.patient_id, doctor_id: tx.doctor_id }))
+    ).then(setBalanceMap).catch(() => {});
+  }, [transactions]);
+
+  const getBalanceFor = (tx: Transaction) =>
+    tx.patient_id && tx.doctor_id ? balanceMap.get(`${tx.patient_id}_${tx.doctor_id}`) : undefined;
 
   const cash = transactions.filter((t) => t.payment_method === 'cash').reduce((s, t) => s + Number(t.final_amount), 0);
   const vodafoneRaw = transactions.filter((t) => t.payment_method === 'vodafone_cash').reduce((s, t) => s + Number(t.final_amount), 0);
@@ -243,14 +254,15 @@ export default function DoctorDashboard() {
             <div className="text-center py-12 text-muted-foreground">No transactions in this period.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="text-sm" style={{ minWidth: '700px', width: '100%' }}>
+              <table className="text-sm" style={{ minWidth: '850px', width: '100%' }}>
                 <thead>
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date / Time</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Base')}</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Paid')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Total')}</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Remaining')}</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
                     <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('My Earnings')}</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
@@ -280,8 +292,13 @@ export default function DoctorDashboard() {
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">{formatCurrency(tx.base_amount)}</td>
                       <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.total_due) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.total_due - getBalanceFor(tx)!.total_paid) : '—'}
+                      </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {tx.lab_fees_pending ? (
                           <span className="flex items-center justify-end gap-1 text-amber-600 text-xs">

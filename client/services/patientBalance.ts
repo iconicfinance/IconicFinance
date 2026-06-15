@@ -116,6 +116,28 @@ export const getBalancesForPatientIds = async (
   return new Map(balances.map((b: any) => [b.patient_id, { ...b, doctor_name: dm.get(b.doctor_id) ?? '' }]));
 };
 
+/**
+ * Fetches current patient_balance rows for a set of (patient_id, doctor_id) pairs,
+ * keyed by `${patient_id}_${doctor_id}` for lookup.
+ */
+export const getBalancesForPatientDoctorPairs = async (
+  pairs: { patient_id: string | null; doctor_id: string | null }[]
+): Promise<Map<string, PatientBalance>> => {
+  const patientIds = [...new Set(
+    pairs.filter((p) => p.patient_id && p.doctor_id).map((p) => p.patient_id as string)
+  )];
+  if (patientIds.length === 0) return new Map();
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('patient_balance')
+    .select('*')
+    .in('patient_id', patientIds);
+  if (error) throw error;
+
+  return new Map((data || []).map((b: any) => [`${b.patient_id}_${b.doctor_id}`, b]));
+};
+
 export const getAllBalancesForPatient = async (patientId: string): Promise<PatientBalanceFull[]> => {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { PaymentMethodIcon } from '@/components/PaymentMethodIcon';
 import { getTodayTransactions, getTransactionsByDateRange, type Transaction } from '@/services/transactions';
 import { getActiveDoctors, type Doctor } from '@/services/doctors';
+import { getBalancesForPatientDoctorPairs, type PatientBalance } from '@/services/patientBalance';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -27,6 +28,7 @@ export default function AssistantToday() {
   const [tableOffset, setTableOffset]             = useState(0);
   const [tableHasMore, setTableHasMore]           = useState(false);
   const [tableLoadingMore, setTableLoadingMore]   = useState(false);
+  const [balanceMap, setBalanceMap]               = useState<Map<string, PatientBalance>>(new Map());
 
   const getTableRange = () => {
     const to = new Date();
@@ -82,6 +84,15 @@ export default function AssistantToday() {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    getBalancesForPatientDoctorPairs(
+      tableTransactions.map((tx) => ({ patient_id: tx.patient_id, doctor_id: tx.doctor_id }))
+    ).then(setBalanceMap).catch(() => {});
+  }, [tableTransactions]);
+
+  const getBalanceFor = (tx: Transaction) =>
+    tx.patient_id && tx.doctor_id ? balanceMap.get(`${tx.patient_id}_${tx.doctor_id}`) : undefined;
 
   // Summary cards — TODAY only
   const payments  = todayTransactions.filter((tx) => tx.type === 'payment_in');
@@ -179,7 +190,7 @@ export default function AssistantToday() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="text-sm" style={{ minWidth: '750px', width: '100%' }}>
+                <table className="text-sm" style={{ minWidth: '950px', width: '100%' }}>
                   <thead>
                     <tr className="border-b bg-muted/40">
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Date')}</th>
@@ -188,7 +199,9 @@ export default function AssistantToday() {
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Patient')}</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
-                      <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                      <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Paid')}</th>
+                      <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Total')}</th>
+                      <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Remaining')}</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
                     </tr>
@@ -228,6 +241,12 @@ export default function AssistantToday() {
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
                         <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.total_due) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.total_due - getBalanceFor(tx)!.total_paid) : '—'}
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {tx.type === 'payment_in' ? (
                             tx.lab_fees_pending ? (

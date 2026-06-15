@@ -281,6 +281,7 @@ export const ar: Record<string, string> = {
   'Method': 'الطريقة',
   'Base': 'الأساسي',
   'Final': 'الإجمالي',
+  'Paid': 'المدفوع',
   'Recorded By': 'مسجل بواسطة',
   'Notes': 'ملاحظات',
   'Type': 'النوع',
