@@ -198,48 +198,38 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
         if (!doctorId)  { setError(t('Please select a doctor.'));             setSaving(false); return; }
 
         const isRecordingPayment = payTodayNum > 0;
-        const isSettingNewBalance = !activeBalance && totalClinicalNum > 0;
-        const isUpdatingTotal = activeBalance &&
-          (parseFloat(newTotalValue) || activeBalance.total_due) !== activeBalance.total_due;
 
         if (isRecordingPayment && !paymentMethod) {
           setError(t('Please select a payment method.')); setSaving(false); return;
-        }
-
-        // Nothing financial to do → close silently (visit noted)
-        if (!isRecordingPayment && !isSettingNewBalance && !isUpdatingTotal) {
-          onClose(); setSaving(false); return;
         }
 
         const validLabs = hasLabFees
           ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
           : [];
 
-        // Only create a transaction when actually paying
-        let txId: string | null = null;
-        if (isRecordingPayment) {
-          saved = await createPaymentIn({
-            assistant_id:   user.id,
-            assistant_name: user.full_name,
-            patient_id:     patientId,
-            patient_name:   patientName,
-            doctor_id:      doctorId,
-            payment_method: paymentMethod as any,
-            base_amount:    payTodayNum,
-            final_amount:   finalDueToday,
-            has_lab_fees:   validLabs.length > 0,
-            lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
-            expense_description: description.trim() || null,
-            created_at: createdAt,
-          });
-          txId = saved.id;
+        // Always create a transaction (even 0-amount visits), so lab fees and
+        // total-only updates have a row to attach to and show up in the tables.
+        saved = await createPaymentIn({
+          assistant_id:   user.id,
+          assistant_name: user.full_name,
+          patient_id:     patientId,
+          patient_name:   patientName,
+          doctor_id:      doctorId,
+          payment_method: (paymentMethod || null) as any,
+          base_amount:    payTodayNum,
+          final_amount:   finalDueToday,
+          has_lab_fees:   validLabs.length > 0,
+          lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
+          expense_description: description.trim() || null,
+          created_at: createdAt,
+        });
+        const txId = saved.id;
 
-          if (validLabs.length > 0) {
-            await saveLabFeesForTransaction(
-              txId,
-              validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
-            );
-          }
+        if (validLabs.length > 0) {
+          await saveLabFeesForTransaction(
+            txId,
+            validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+          );
         }
 
         // ── Balance tracking ────────────────────────────────────────────────────

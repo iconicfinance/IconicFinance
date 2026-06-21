@@ -28,21 +28,19 @@ export const getLabFeesForTransaction = async (transactionId: string): Promise<T
   return data.map((r: any) => ({ ...r, lab_name: lm.get(r.lab_id) ?? '' }));
 };
 
-export const getLabFeesForMonth = async (
-  year: number,
-  month: number
+export const getLabFeesForRange = async (
+  start: Date,
+  end: Date
 ): Promise<{ lab_id: string; lab_name: string; total: number }[]> => {
   const supabase = getSupabaseClient();
-  const start = new Date(year, month - 1, 1).toISOString();
-  const end   = new Date(year, month, 1).toISOString();
 
-  // Step 1: get payment_in transaction IDs for the month
+  // Step 1: get payment_in transaction IDs in range
   const { data: txs } = await supabase
     .from('transactions')
     .select('id')
     .eq('type', 'payment_in')
-    .gte('created_at', start)
-    .lt('created_at', end);
+    .gte('created_at', start.toISOString())
+    .lt('created_at', end.toISOString());
 
   if (!txs || txs.length === 0) return [];
   const txIds = txs.map((t: any) => t.id);
@@ -73,6 +71,9 @@ export const getLabFeesForMonth = async (
     total,
   }));
 };
+
+export const getLabFeesForMonth = (year: number, month: number) =>
+  getLabFeesForRange(new Date(year, month - 1, 1), new Date(year, month, 1));
 
 export const saveLabFeesForTransaction = async (
   transactionId: string,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader, AlertCircle, Search, X } from 'lucide-react';
+import { Loader, AlertCircle, Search, X, AlertTriangle, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,10 @@ import {
 import { Transaction, updateTransaction } from '@/services/transactions';
 import { getAllDoctors, Doctor } from '@/services/doctors';
 import { searchPatients, Patient } from '@/services/patients';
+import {
+  getPatientBalance, upsertPatientBalance, updatePatientBalance,
+  logBalanceEvent, type PatientBalance,
+} from '@/services/patientBalance';
 import { formatCurrency } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -48,6 +52,12 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
   const [hasLabFees, setHasLabFees] = useState(false);
   const [labFeesAmount, setLabFeesAmount] = useState('');
 
+  const [balance, setBalance] = useState<PatientBalance | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [editingTotal, setEditingTotal] = useState(false);
+  const [newTotalValue, setNewTotalValue] = useState('');
+  const [totalClinical, setTotalClinical] = useState('');
+
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
 
@@ -60,12 +70,26 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
     setBaseAmount(tx.base_amount?.toString() || tx.final_amount?.toString() || '');
     setHasLabFees(tx.has_lab_fees || false);
     setLabFeesAmount(tx.lab_fees_amount?.toString() || '');
+    setEditingTotal(false); setTotalClinical('');
     if (tx.patient_name) {
       setPatientQuery(tx.patient_name);
       setSelectedPatient({ id: tx.patient_id!, full_name: tx.patient_name, patient_code: '', created_at: '', updated_at: '' });
     }
     getAllDoctors().then(setDoctors).catch(console.error);
   }, [tx]);
+
+  // Load the patient/doctor's outstanding balance so Total/Remaining can be reviewed or corrected
+  useEffect(() => {
+    if (!tx || tx.type !== 'payment_in' || !selectedPatient || !doctorId) { setBalance(null); return; }
+    setBalanceLoading(true);
+    getPatientBalance(selectedPatient.id, doctorId)
+      .then((b) => {
+        setBalance(b);
+        setNewTotalValue(b && !b.is_settled ? String(b.total_due) : '');
+      })
+      .catch(() => setBalance(null))
+      .finally(() => setBalanceLoading(false));
+  }, [tx, selectedPatient?.id, doctorId]);
 
   useEffect(() => {
     const handleOut = (e: MouseEvent) => {
@@ -90,6 +114,8 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
 
   const baseNum = parseFloat(baseAmount) || 0;
   const finalAmount = paymentMethod === 'vodafone_cash' ? Math.round(baseNum * 1.01 * 100) / 100 : baseNum;
+  const activeBalance = balance && !balance.is_settled ? balance : null;
+  const remaining = activeBalance ? activeBalance.total_due - activeBalance.total_paid : 0;
 
   const handleSave = async () => {
     if (!tx) return;
@@ -120,6 +146,41 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
       }
 
       const updated = await updateTransaction(tx.id, updates);
+
+      if (tx.type === 'payment_in' && selectedPatient && doctorId) {
+        if (balance) {
+          const parsedTotal = parseFloat(newTotalValue);
+          if (!isNaN(parsedTotal) && parsedTotal !== balance.total_due) {
+            logBalanceEvent({
+              patient_id: selectedPatient.id, doctor_id: doctorId,
+              event_type: 'total_updated',
+              old_total: balance.total_due, new_total: parsedTotal,
+              payment_amount: null, new_remaining: parsedTotal - balance.total_paid,
+              transaction_id: tx.id, notes: null,
+            });
+            await updatePatientBalance(balance.id, {
+              total_due: parsedTotal,
+              is_settled: balance.total_paid >= parsedTotal,
+            });
+          }
+        } else {
+          const newTotal = parseFloat(totalClinical);
+          if (newTotal > 0) {
+            logBalanceEvent({
+              patient_id: selectedPatient.id, doctor_id: doctorId,
+              event_type: 'balance_created',
+              old_total: null, new_total: newTotal,
+              payment_amount: 0, new_remaining: newTotal,
+              transaction_id: tx.id, notes: null,
+            });
+            await upsertPatientBalance({
+              patient_id: selectedPatient.id, doctor_id: doctorId,
+              total_due: newTotal, total_paid: 0, is_settled: false,
+            });
+          }
+        }
+      }
+
       onSaved(updated);
     } catch (err: any) {
       setError(err.message || t('Failed to load'));
@@ -212,6 +273,55 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Total / Remaining balance */}
+              {balanceLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader className="w-4 h-4 animate-spin" /> {t('Checking balance...')}
+                </div>
+              )}
+
+              {!balanceLoading && activeBalance && (
+                <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-amber-800">{t('Outstanding Balance')}</p>
+                      <p className="text-xs text-amber-700 mt-0.5">
+                        {t('Remaining')}: <strong>{formatCurrency(remaining)}</strong>
+                        {' '}({t('Paid so far')} {formatCurrency(activeBalance.total_paid)} {t('of')} {formatCurrency(activeBalance.total_due)})
+                      </p>
+                    </div>
+                  </div>
+                  {editingTotal ? (
+                    <div className="flex items-center gap-2">
+                      <Input type="number" min="0" step="0.01" placeholder={t('Total Clinical')}
+                        value={newTotalValue} onChange={(e) => setNewTotalValue(e.target.value)}
+                        className="flex-1 h-8 text-sm" />
+                      <Button type="button" size="sm" variant="outline" onClick={() => setEditingTotal(false)}>
+                        {t('Done')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setEditingTotal(true)}
+                      className="flex items-center gap-1 text-xs text-amber-700 underline">
+                      <Pencil className="w-3 h-3" />
+                      {t('Change total')} ({formatCurrency(parseFloat(newTotalValue) || activeBalance.total_due)})
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {!balanceLoading && !activeBalance && selectedPatient && (
+                <div className="space-y-1.5">
+                  <Label>{t('Total Clinical (EGP)')}</Label>
+                  <Input type="number" min="0" step="0.01" placeholder="e.g. 3000"
+                    value={totalClinical} onChange={(e) => setTotalClinical(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">
+                    {t('Enter the full treatment cost. If patient pays less today, the difference is tracked as a remaining balance.')}
+                  </p>
+                </div>
+              )}
             </>
           )}
 

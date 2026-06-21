@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Loader, AlertTriangle, Pencil, Trash2, CalendarPlus } from 'lucide-react';
+import { AlertCircle, Loader, AlertTriangle, Pencil, Trash2, CalendarPlus, Plus } from 'lucide-react';
 import { PaymentMethodIcon } from '@/components/PaymentMethodIcon';
 import { EditTransactionModal } from './EditTransactionModal';
 import { AddTransactionModal } from './AddTransactionModal';
@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/select';
 import { getTransactionsByDateRange, updateLabFees, deleteTransaction, type Transaction } from '@/services/transactions';
 import { getBalancesForPatientDoctorPairs, type PatientBalance } from '@/services/patientBalance';
+import { getActiveLabs, type Lab } from '@/services/labs';
+import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
 
 const PAGE_SIZE = 30;
 import { getAllDoctors, Doctor } from '@/services/doctors';
@@ -58,7 +60,8 @@ export default function AdminDashboard() {
   const [loadingMore, setLoadingMore]   = useState(false);
 
   const [labFeeModal, setLabFeeModal] = useState<Transaction | null>(null);
-  const [labFeeInput, setLabFeeInput] = useState('');
+  const [labFeeEntries, setLabFeeEntries] = useState<{ labId: string; amount: string }[]>([{ labId: '', amount: '' }]);
+  const [labs, setLabs] = useState<Lab[]>([]);
   const [savingLabFee, setSavingLabFee] = useState(false);
   const [labFeeError, setLabFeeError] = useState('');
 
@@ -143,6 +146,10 @@ export default function AdminDashboard() {
   }, [load]);
 
   useEffect(() => {
+    getActiveLabs().then(setLabs).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     getBalancesForPatientDoctorPairs(
       transactions.map((tx) => ({ patient_id: tx.patient_id, doctor_id: tx.doctor_id }))
     ).then(setBalanceMap).catch(() => {});
@@ -173,21 +180,31 @@ export default function AdminDashboard() {
 
   const openLabFeeModal = (tx: Transaction) => {
     setLabFeeModal(tx);
-    setLabFeeInput('');
+    setLabFeeEntries([{ labId: '', amount: '' }]);
     setLabFeeError('');
   };
 
+  const addLabFeeEntry    = () => setLabFeeEntries((p) => [...p, { labId: '', amount: '' }]);
+  const removeLabFeeEntry = (i: number) => setLabFeeEntries((p) => p.filter((_, idx) => idx !== i));
+  const updateLabFeeEntry = (i: number, field: 'labId' | 'amount', val: string) =>
+    setLabFeeEntries((p) => p.map((e, idx) => (idx === i ? { ...e, [field]: val } : e)));
+
   const saveLabFee = async () => {
     if (!labFeeModal) return;
-    const amount = parseFloat(labFeeInput);
-    if (!labFeeInput || amount <= 0) {
-      setLabFeeError('Please enter a valid amount.');
+    const validEntries = labFeeEntries.filter((e) => e.labId && parseFloat(e.amount) > 0);
+    if (validEntries.length === 0) {
+      setLabFeeError('Please select a lab and enter a valid amount.');
       return;
     }
+    const total = validEntries.reduce((s, e) => s + parseFloat(e.amount), 0);
     setSavingLabFee(true);
     setLabFeeError('');
     try {
-      const updated = await updateLabFees(labFeeModal.id, amount);
+      await saveLabFeesForTransaction(
+        labFeeModal.id,
+        validEntries.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+      );
+      const updated = await updateLabFees(labFeeModal.id, total);
       setTransactions((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       setLabFeeModal(null);
     } catch (err: any) {
@@ -506,16 +523,32 @@ export default function AdminDashboard() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label>{t('Lab Fees')} Amount (EGP) *</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={labFeeInput}
-                  onChange={(e) => setLabFeeInput(e.target.value)}
-                  autoFocus
-                />
+                <Label>{t('Lab Fees')} *</Label>
+                {labFeeEntries.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Select value={entry.labId} onValueChange={(v) => updateLabFeeEntry(i, 'labId', v)}>
+                      <SelectTrigger className="flex-1 h-9"><SelectValue placeholder={t('Select lab')} /></SelectTrigger>
+                      <SelectContent>
+                        {labs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number" min="0" step="0.01" placeholder="0.00"
+                      value={entry.amount}
+                      onChange={(e) => updateLabFeeEntry(i, 'amount', e.target.value)}
+                      className="w-24 h-9"
+                      autoFocus={i === 0}
+                    />
+                    {labFeeEntries.length > 1 && (
+                      <button type="button" onClick={() => removeLabFeeEntry(i)}>
+                        <Trash2 className="w-4 h-4 text-red-400 hover:text-red-600" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={addLabFeeEntry} className="flex items-center gap-1 text-sm text-primary hover:underline">
+                  <Plus className="w-3.5 h-3.5" /> {t('Add another lab')}
+                </button>
               </div>
             </div>
           )}

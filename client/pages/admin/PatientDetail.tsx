@@ -1,15 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertCircle, Loader, AlertTriangle, CheckCircle2, PenLine, CreditCard } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Loader, AlertTriangle, CheckCircle2, PenLine, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
 import { getPatientById, type Patient } from '@/services/patients';
-import { getTransactionsByDateRange, type Transaction } from '@/services/transactions';
+import { getTransactionsByDateRange, deleteTransaction, type Transaction } from '@/services/transactions';
 import { getAllBalancesForPatient, getBalanceEvents, type PatientBalanceFull, type BalanceEvent } from '@/services/patientBalance';
 import { getAllDoctors, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { EditTransactionModal } from './EditTransactionModal';
 
 interface DoctorBalance extends PatientBalanceFull {
   events: BalanceEvent[];
@@ -27,6 +31,22 @@ export default function AdminPatientDetail() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
 
+  const [editingTx, setEditingTx]   = useState<Transaction | null>(null);
+  const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
+  const [deleting, setDeleting]     = useState(false);
+
+  const loadBalances = useCallback(async () => {
+    if (!patientId) return;
+    const balances = await getAllBalancesForPatient(patientId);
+    const withEvents = await Promise.all(
+      balances.map(async (b) => {
+        const events = await getBalanceEvents(patientId, b.doctor_id).catch(() => []);
+        return { ...b, events };
+      })
+    );
+    setDoctorBalances(withEvents);
+  }, [patientId]);
+
   useEffect(() => {
     if (!patientId) return;
     const load = async () => {
@@ -36,25 +56,16 @@ export default function AdminPatientDetail() {
         const from = new Date('2000-01-01');
         const to   = new Date(); to.setDate(to.getDate() + 1);
 
-        const [pat, allTx, docs, balances] = await Promise.all([
+        const [pat, allTx, docs] = await Promise.all([
           getPatientById(patientId),
           getTransactionsByDateRange(from, to),
           getAllDoctors(),
-          getAllBalancesForPatient(patientId),
+          loadBalances(),
         ]);
 
         setPatient(pat);
         setDoctors(docs);
         setTransactions(allTx.filter((t) => t.patient_id === patientId && t.type === 'payment_in'));
-
-        // Load events for each doctor balance
-        const withEvents = await Promise.all(
-          balances.map(async (b) => {
-            const events = await getBalanceEvents(patientId, b.doctor_id).catch(() => []);
-            return { ...b, events };
-          })
-        );
-        setDoctorBalances(withEvents);
       } catch (err: any) {
         setError(err.message || 'Failed to load patient data');
       } finally {
@@ -62,10 +73,12 @@ export default function AdminPatientDetail() {
       }
     };
     load();
-  }, [patientId]);
+  }, [patientId, loadBalances]);
 
   const getDoctorName = (id: string | null) => doctors.find((d) => d.id === id)?.name || '—';
   const totalRevenue  = transactions.reduce((s, t) => s + Number(t.final_amount), 0);
+  const balanceMap = new Map(doctorBalances.map((b) => [b.doctor_id, b]));
+  const getBalanceFor = (tx: Transaction) => (tx.doctor_id ? balanceMap.get(tx.doctor_id) : undefined);
 
   const eventIcon = (type: BalanceEvent['event_type']) => {
     if (type === 'balance_created') return <PenLine className="w-3.5 h-3.5 text-blue-500" />;
@@ -216,21 +229,26 @@ export default function AdminPatientDetail() {
                 <div className="text-center py-12 text-muted-foreground">No transactions found.</div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="text-sm" style={{ minWidth: '800px', width: '100%' }}>
+                  <table className="text-sm" style={{ minWidth: '1050px', width: '100%' }}>
                     <thead>
                       <tr className="border-b bg-muted/40">
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Date / Time</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Doctor')}</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Method')}</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Base')}</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Final')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Paid')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Total')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Remaining')}</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Lab Fees')}</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Dr. Earnings</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Recorded By')}</th>
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">{t('Notes')}</th>
+                        <th className="px-4 py-3 font-medium text-muted-foreground whitespace-nowrap"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {transactions.map((tx) => (
+                      {transactions.map((tx) => {
+                        const bal = getBalanceFor(tx);
+                        return (
                         <tr key={tx.id} className={`border-b last:border-0 hover:bg-muted/20 ${tx.lab_fees_pending ? 'bg-amber-50' : ''}`}>
                           <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
                             {formatDate(tx.created_at)}<br />
@@ -238,8 +256,9 @@ export default function AdminPatientDetail() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">{getDoctorName(tx.doctor_id)}</td>
                           <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">{formatCurrency(tx.base_amount)}</td>
                           <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">{bal ? formatCurrency(bal.total_due) : '—'}</td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">{bal ? formatCurrency(bal.total_due - bal.total_paid) : '—'}</td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">
                             {tx.lab_fees_pending ? (
                               <span className="flex items-center justify-end gap-1 text-amber-600 text-xs">
@@ -247,12 +266,34 @@ export default function AdminPatientDetail() {
                               </span>
                             ) : tx.has_lab_fees ? formatCurrency(tx.lab_fees_amount) : '—'}
                           </td>
+                          <td className="px-4 py-3 text-right font-medium text-primary whitespace-nowrap">{formatCurrency(tx.doctor_earnings)}</td>
                           <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">{tx.assistant_name}</td>
                           <td className="px-4 py-3 text-muted-foreground" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {tx.expense_description || '—'}
                           </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingTx(tx)}
+                                className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                                title="Edit transaction"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingTx(tx)}
+                                className="p-1.5 rounded hover:bg-red-100 transition-colors text-muted-foreground hover:text-red-600"
+                                title="Delete transaction"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -261,6 +302,65 @@ export default function AdminPatientDetail() {
           </Card>
         </>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deletingTx} onOpenChange={(open) => { if (!open && !deleting) setDeletingTx(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Transaction</DialogTitle>
+          </DialogHeader>
+          {deletingTx && (
+            <div className="space-y-3 py-2">
+              <p className="text-sm text-muted-foreground">
+                Are you sure you want to permanently delete this transaction? This cannot be undone.
+              </p>
+              <div className="text-sm space-y-1 border rounded-lg p-3 bg-muted/30">
+                <p><span className="text-muted-foreground">Amount:</span> {formatCurrency(deletingTx.final_amount)}</p>
+                <p><span className="text-muted-foreground">Date:</span> {formatDate(deletingTx.created_at)}</p>
+                <p><span className="text-muted-foreground">Doctor:</span> {getDoctorName(deletingTx.doctor_id)}</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingTx(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                if (!deletingTx) return;
+                setDeleting(true);
+                try {
+                  await deleteTransaction(deletingTx.id);
+                  setTransactions((prev) => prev.filter((t) => t.id !== deletingTx.id));
+                  setDeletingTx(null);
+                  await loadBalances();
+                } catch (err: any) {
+                  setError(err.message || 'Failed to delete transaction');
+                  setDeletingTx(null);
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? <Loader className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              {deleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Transaction Modal */}
+      <EditTransactionModal
+        transaction={editingTx}
+        onClose={() => setEditingTx(null)}
+        onSaved={async (updated) => {
+          setTransactions((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+          setEditingTx(null);
+          await loadBalances();
+        }}
+      />
     </div>
   );
 }

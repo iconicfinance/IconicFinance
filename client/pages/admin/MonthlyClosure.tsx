@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer, Plus, Trash2, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, Loader, CheckCircle, Lock, Unlock, Printer, Plus, Trash2, Clock, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,6 +45,7 @@ interface DoctorCardState {
 
 export default function AdminMonthlyClosure() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { t } = useLanguage();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -240,9 +242,14 @@ export default function AdminMonthlyClosure() {
   return (
     <>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">{t('Monthly Closing')}</h1>
-          <p className="text-muted-foreground text-sm mt-1">End-of-month financial settlement</p>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">{t('Monthly Closing')}</h1>
+            <p className="text-muted-foreground text-sm mt-1">End-of-month financial settlement</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => navigate('/admin/analytics')}>
+            <BarChart3 className="w-4 h-4 mr-1.5" /> Analytics
+          </Button>
         </div>
 
         {/* Month / Year Picker */}

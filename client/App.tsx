@@ -35,6 +35,7 @@ import AdminMonthlyClosure from "./pages/admin/MonthlyClosure";
 import AdminPatientDetail from "./pages/admin/PatientDetail";
 import AdminLabConfig from "./pages/admin/LabConfig";
 import AdminPatients from "./pages/admin/AdminPatients";
+import AdminAnalytics from "./pages/admin/Analytics";
 
 const queryClient = new QueryClient();
 
@@ -262,6 +263,18 @@ const App = () => (
                 <ProtectedRoute allowedRoles={["admin"]}>
                   <LayoutRoute>
                     <AdminLabConfig />
+                  </LayoutRoute>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Analytics */}
+            <Route
+              path="/admin/analytics"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <LayoutRoute>
+                    <AdminAnalytics />
                   </LayoutRoute>
                 </ProtectedRoute>
               }
