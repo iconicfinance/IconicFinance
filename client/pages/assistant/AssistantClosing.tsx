@@ -12,6 +12,7 @@ import {
   type MonthlySummaryRow, type MonthlyClosing,
 } from '@/services/monthlyClosings';
 import { getTransactionsByDoctor } from '@/services/transactions';
+import { getDoctorTypeLabel } from '@/services/doctors';
 import { formatCurrency, formatDate, MONTH_NAMES } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -142,7 +143,9 @@ export default function AssistantClosing() {
       const fmt = (n: number | null | undefined) =>
         n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const monthName = MONTH_NAMES[month - 1];
-      const typeLabel = row.doctor_type === 'custom' ? (row.custom_label || 'Custom') : 'Extern';
+      const typeLabel = row.doctor_type === 'custom'
+        ? getDoctorTypeLabel({ type: row.doctor_type, custom_label: row.custom_label, custom_percentage: row.custom_percentage })
+        : 'Extern';
       const pct = row.doctor_type === 'custom' ? (row.custom_percentage ?? 40) : 40;
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -253,7 +256,9 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
         const wasReopened    = reopenedDoctors.has(row.doctor_id);
         const locked         = (recent?.is_confirmed ?? false) && !wasReopened;
         const pct            = row.doctor_type === 'custom' ? (row.custom_percentage ?? 40) : 40;
-        const typeLabel      = row.doctor_type === 'custom' ? (row.custom_label || t('Custom')) : `${t('Extern')} (${pct}%)`;
+        const typeLabel      = row.doctor_type === 'custom'
+          ? getDoctorTypeLabel({ type: row.doctor_type, custom_label: row.custom_label, custom_percentage: row.custom_percentage })
+          : `${t('Extern')} (${pct}%)`;
         const history        = closingHistory.filter((h) => h.doctor_id === row.doctor_id);
         if (!state) return null;
 

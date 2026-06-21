@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { AlertCircle, Loader, Plus, Pencil, ToggleLeft, ToggleRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, Loader, Plus, Pencil, ToggleLeft, ToggleRight, Stethoscope } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { getAllUsers, createUser, updateUser, User } from '@/services/users';
-import { getAllDoctors, Doctor } from '@/services/doctors';
+import { getAllDoctors, getDoctorTypeLabel, Doctor } from '@/services/doctors';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -30,6 +31,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function AdminUsers() {
+  const navigate = useNavigate();
   const { t } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
@@ -153,9 +155,14 @@ export default function AdminUsers() {
           <h1 className="text-2xl font-bold">{t('User Management')}</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage clinic user accounts</p>
         </div>
-        <Button onClick={openAdd}>
-          <Plus className="w-4 h-4 mr-2" /> {t('Add User')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => navigate('/admin/doctors')}>
+            <Stethoscope className="w-4 h-4 mr-2" /> {t('Doctors')}
+          </Button>
+          <Button onClick={openAdd}>
+            <Plus className="w-4 h-4 mr-2" /> {t('Add User')}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -327,7 +334,7 @@ export default function AdminUsers() {
                     <SelectContent>
                       {doctors.map((d) => (
                         <SelectItem key={d.id} value={d.id}>
-                          {d.name} ({d.type})
+                          {d.name} ({getDoctorTypeLabel(d)})
                         </SelectItem>
                       ))}
                     </SelectContent>

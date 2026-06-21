@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Transaction, createPaymentIn, createExpenseOut } from '@/services/transactions';
-import { getActiveDoctors, Doctor } from '@/services/doctors';
+import { getActiveDoctors, getDoctorTypeLabel, Doctor } from '@/services/doctors';
 import { getActiveLabs, Lab } from '@/services/labs';
 import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
 import { searchPatients, createPatient, Patient } from '@/services/patients';
@@ -405,7 +405,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
                   <SelectContent>
                     {doctors.map((d) => (
                       <SelectItem key={d.id} value={d.id}>
-                        {d.name} ({d.type === 'custom' ? d.custom_label || t('Custom') : d.type})
+                        {d.name} ({getDoctorTypeLabel(d)})
                       </SelectItem>
                     ))}
                   </SelectContent>

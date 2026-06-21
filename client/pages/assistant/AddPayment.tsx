@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { searchPatients, createPatient, type Patient } from '@/services/patients';
-import { getActiveDoctors, type Doctor } from '@/services/doctors';
+import { getActiveDoctors, getDoctorTypeLabel, type Doctor } from '@/services/doctors';
 import { getActiveLabs, type Lab } from '@/services/labs';
 import { createPaymentIn } from '@/services/transactions';
 import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
@@ -397,7 +397,7 @@ export default function AssistantAddPayment() {
                 <SelectContent>
                   {doctors.map((d) => (
                     <SelectItem key={d.id} value={d.id}>
-                      {d.name} ({d.type === 'custom' ? d.custom_label || 'Custom' : d.type.charAt(0).toUpperCase() + d.type.slice(1)})
+                      {d.name} ({getDoctorTypeLabel(d)})
                     </SelectItem>
                   ))}
                 </SelectContent>

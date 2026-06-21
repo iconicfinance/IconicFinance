@@ -11,6 +11,21 @@ export interface Doctor {
   updated_at: string;
 }
 
+export interface DoctorTypeInfo {
+  type: string;
+  custom_label?: string | null;
+  custom_percentage?: number | null;
+}
+
+// Canonical label for a doctor's type, used everywhere a doctor's type is shown —
+// custom doctors always show "Custom" plus whatever label was set for them.
+export const getDoctorTypeLabel = (d: DoctorTypeInfo): string => {
+  if (d.type === 'primary') return 'Primary';
+  if (d.type === 'extern') return 'Extern (40%)';
+  if (d.type === 'custom') return d.custom_label ? `Custom — ${d.custom_label}` : `Custom (${d.custom_percentage ?? 0}%)`;
+  return d.type;
+};
+
 export const getAllDoctors = async (): Promise<Doctor[]> => {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase

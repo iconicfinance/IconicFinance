@@ -17,6 +17,7 @@ export interface AnalyticsSummary {
   paymentMethodBreakdown: { method: string; total: number; count: number; pct: number }[];
   doctorPerformance: {
     doctorId: string; name: string; type: string;
+    custom_label: string | null; custom_percentage: number | null;
     revenue: number; caseCount: number; earnings: number;
     avgPerCase: number; pctOfRevenue: number;
   }[];
@@ -124,6 +125,8 @@ export const getAnalyticsSummary = async (from: Date, to: Date): Promise<Analyti
         doctorId: id,
         name: doc?.name || 'Unknown',
         type: doc?.type || 'unknown',
+        custom_label: doc?.custom_label ?? null,
+        custom_percentage: doc?.custom_percentage ?? null,
         revenue: v.revenue,
         caseCount: v.caseCount,
         earnings: v.earnings,

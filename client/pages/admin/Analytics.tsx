@@ -16,6 +16,7 @@ import {
   getAnalyticsSummary, getRevenueTrend, getPatientGrowthTrend,
   type AnalyticsSummary, type MonthBucket, type PatientGrowthBucket,
 } from '@/services/analytics';
+import { getDoctorTypeLabel } from '@/services/doctors';
 import { formatCurrency, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -28,13 +29,6 @@ const COLORS = {
   teal: '#0d9488',
 };
 const PIE_COLORS = ['#0078a8', '#16a34a', '#d97706', '#7c3aed', '#dc2626', '#0d9488', '#db2777', '#65a30d'];
-
-const doctorTypeLabel = (type: string) => {
-  if (type === 'primary') return 'Primary';
-  if (type === 'extern') return 'Extern';
-  if (type === 'custom') return 'Custom';
-  return type;
-};
 
 function Kpi({ label, value, sub, icon: Icon, tone = 'default' }: {
   label: string; value: string; sub?: string;
@@ -379,7 +373,7 @@ export default function AdminAnalytics() {
                         {summary.doctorPerformance.map((d) => (
                           <tr key={d.doctorId} className="border-b last:border-0">
                             <td className="px-3 py-2 whitespace-nowrap font-medium">{d.name}</td>
-                            <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{doctorTypeLabel(d.type)}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{getDoctorTypeLabel(d)}</td>
                             <td className="px-3 py-2 text-right whitespace-nowrap">{d.caseCount}</td>
                             <td className="px-3 py-2 text-right whitespace-nowrap font-medium">{formatCurrency(d.revenue)}</td>
                             <td className="px-3 py-2 text-right whitespace-nowrap">{formatCurrency(d.avgPerCase)}</td>

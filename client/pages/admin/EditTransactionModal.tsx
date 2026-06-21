@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Transaction, updateTransaction } from '@/services/transactions';
-import { getAllDoctors, Doctor } from '@/services/doctors';
+import { getAllDoctors, getDoctorTypeLabel, Doctor } from '@/services/doctors';
 import { searchPatients, Patient } from '@/services/patients';
 import {
   getPatientBalance, upsertPatientBalance, updatePatientBalance,
@@ -268,7 +268,7 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
                   <SelectTrigger><SelectValue placeholder={t('Select doctor')} /></SelectTrigger>
                   <SelectContent>
                     {doctors.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>{d.name} ({d.type})</SelectItem>
+                      <SelectItem key={d.id} value={d.id}>{d.name} ({getDoctorTypeLabel(d)})</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
