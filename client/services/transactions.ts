@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/lib/supabase';
+import { recomputeAndSyncBalance, reconcileBalanceForEditedTransaction } from './patientBalance';
 
 export interface Transaction {
   id: string;
@@ -177,21 +178,53 @@ export const updateTransaction = async (
   }>
 ): Promise<Transaction> => {
   const supabase = getSupabaseClient();
+
+  const { data: before, error: beforeError } = await supabase
+    .from('transactions')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (beforeError) throw beforeError;
+
   const { data, error } = await supabase
     .from('transactions')
     .update(updates)
     .eq('id', id)
     .select()
     .single();
-
   if (error) throw error;
+
+  if (before.type === 'payment_in') {
+    await reconcileBalanceForEditedTransaction(
+      id,
+      { patient_id: before.patient_id, doctor_id: before.doctor_id },
+      { patient_id: data.patient_id, doctor_id: data.doctor_id, creditedAmount: data.base_amount ?? data.final_amount }
+    );
+  }
+
   return data;
 };
 
 export const deleteTransaction = async (id: string): Promise<void> => {
   const supabase = getSupabaseClient();
-  // Clear FK references in child tables before deleting
-  await supabase.from('patient_balance_events').update({ transaction_id: null }).eq('transaction_id', id);
+
+  // Find which patient/doctor balance(s) this transaction's events affected,
+  // so we can recompute them after its events are gone.
+  const { data: ownEvents, error: ownEventsError } = await supabase
+    .from('patient_balance_events')
+    .select('patient_id, doctor_id')
+    .eq('transaction_id', id);
+  if (ownEventsError) throw ownEventsError;
+  const pairs = [...new Set((ownEvents || []).map((e: any) => `${e.patient_id}|${e.doctor_id}`))];
+
+  // Remove this transaction's own balance events — they no longer apply once it's gone.
+  await supabase.from('patient_balance_events').delete().eq('transaction_id', id);
+
+  for (const pairKey of pairs) {
+    const [patientId, doctorId] = pairKey.split('|');
+    await recomputeAndSyncBalance(patientId, doctorId);
+  }
+
   await supabase.from('transaction_lab_fees').delete().eq('transaction_id', id);
   const { error } = await supabase.from('transactions').delete().eq('id', id);
   if (error) throw error;

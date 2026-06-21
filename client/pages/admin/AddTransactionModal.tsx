@@ -254,7 +254,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
               event_type: 'total_updated',
               old_total: activeBalance.total_due, new_total: newTotalDue,
               payment_amount: null, new_remaining: newTotalDue - activeBalance.total_paid,
-              transaction_id: null, notes: null,
+              transaction_id: txId, notes: null,
             });
           }
           if (isRecordingPayment) {
