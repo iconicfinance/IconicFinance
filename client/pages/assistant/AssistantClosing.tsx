@@ -12,7 +12,7 @@ import {
   type MonthlySummaryRow, type MonthlyClosing,
 } from '@/services/monthlyClosings';
 import { getTransactionsByDoctor } from '@/services/transactions';
-import { getDoctorTypeLabel } from '@/services/doctors';
+import { getDoctorTypeLabel, getDoctorDisplayName } from '@/services/doctors';
 import { formatCurrency, formatDate, MONTH_NAMES } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -147,9 +147,10 @@ export default function AssistantClosing() {
         ? getDoctorTypeLabel({ type: row.doctor_type, custom_label: row.custom_label, custom_percentage: row.custom_percentage })
         : 'Extern';
       const pct = row.doctor_type === 'custom' ? (row.custom_percentage ?? 40) : 40;
+      const doctorDisplayName = getDoctorDisplayName({ name: row.doctor_name, type: row.doctor_type, custom_label: row.custom_label });
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Closing — ${row.doctor_name} — ${monthName} ${year}</title>
+<title>Closing — ${doctorDisplayName} — ${monthName} ${year}</title>
 <style>
   body{font-family:Arial,sans-serif;padding:32px;color:#111;max-width:700px;margin:0 auto}
   h1{font-size:22px;margin-bottom:4px}
@@ -164,7 +165,7 @@ export default function AssistantClosing() {
   .locked{display:inline-block;background:#dcfce7;color:#166534;padding:2px 10px;border-radius:20px;font-size:12px}
 </style>
 </head><body>
-<h1>Closing Report — ${row.doctor_name}</h1>
+<h1>Closing Report — ${doctorDisplayName}</h1>
 <p style="color:#666;font-size:13px">${monthName} ${year} · ${typeLabel} (${pct}%)</p>
 ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
 <h2>Transactions</h2>
@@ -277,7 +278,7 @@ ${closing?.is_confirmed ? '<span class="locked">✓ Confirmed</span>' : ''}
             <CardHeader>
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <CardTitle className="text-base">{row.doctor_name}</CardTitle>
+                  <CardTitle className="text-base">{getDoctorDisplayName({ name: row.doctor_name, type: row.doctor_type, custom_label: row.custom_label })}</CardTitle>
                   <p className="text-sm text-muted-foreground mt-0.5">{typeLabel}</p>
                 </div>
                 <div className="flex items-center gap-2">

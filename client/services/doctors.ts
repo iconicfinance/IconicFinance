@@ -26,6 +26,18 @@ export const getDoctorTypeLabel = (d: DoctorTypeInfo): string => {
   return d.type;
 };
 
+export interface DoctorNameInfo {
+  name: string;
+  type: string;
+  custom_label?: string | null;
+}
+
+// Canonical doctor display name, used everywhere a doctor's name is shown —
+// custom doctors show their custom label in brackets so same-named custom
+// doctors (e.g. one doctor with two different custom rates) stay distinguishable.
+export const getDoctorDisplayName = (d: DoctorNameInfo): string =>
+  d.type === 'custom' && d.custom_label ? `${d.name} (${d.custom_label})` : d.name;
+
 export const getAllDoctors = async (): Promise<Doctor[]> => {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase

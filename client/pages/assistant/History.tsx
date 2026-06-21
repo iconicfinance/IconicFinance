@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getTransactionsByDateRange, type Transaction } from '@/services/transactions';
-import { getActiveDoctors, type Doctor } from '@/services/doctors';
+import { getActiveDoctors, getDoctorDisplayName, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -21,8 +21,10 @@ export default function AssistantHistory() {
     (location.state as { patientName?: string } | null)?.patientName || ''
   );
 
-  const getDoctorName = (id: string | null) =>
-    doctors.find((d) => d.id === id)?.name || '—';
+  const getDoctorName = (id: string | null) => {
+    const d = doctors.find((d) => d.id === id);
+    return d ? getDoctorDisplayName(d) : '—';
+  };
 
   useEffect(() => {
     const to = new Date();

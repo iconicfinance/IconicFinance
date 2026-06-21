@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '@/lib/supabase';
 import { getTransactionsByDateRange, type Transaction } from '@/services/transactions';
-import { getAllDoctors, type Doctor } from '@/services/doctors';
+import { getAllDoctors, getDoctorDisplayName, type Doctor } from '@/services/doctors';
 import { getAllOutstandingBalances } from '@/services/patientBalance';
 import { getLabFeesForRange } from '@/services/transactionLabFees';
 
@@ -123,7 +123,7 @@ export const getAnalyticsSummary = async (from: Date, to: Date): Promise<Analyti
       const doc: Doctor | undefined = doctorById.get(id);
       return {
         doctorId: id,
-        name: doc?.name || 'Unknown',
+        name: doc ? getDoctorDisplayName(doc) : 'Unknown',
         type: doc?.type || 'unknown',
         custom_label: doc?.custom_label ?? null,
         custom_percentage: doc?.custom_percentage ?? null,

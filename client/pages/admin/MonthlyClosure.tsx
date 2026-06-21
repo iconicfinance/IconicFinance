@@ -24,6 +24,7 @@ import {
 } from '@/services/salaries';
 import { getTransactionsByDoctor } from '@/services/transactions';
 import { getLabFeesForMonth } from '@/services/transactionLabFees';
+import { getDoctorDisplayName } from '@/services/doctors';
 import {
   formatCurrency,
   formatDate,
@@ -476,7 +477,7 @@ export default function AdminMonthlyClosure() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between flex-wrap gap-2">
                       <div>
-                        <CardTitle className="text-base">{row.doctor_name}</CardTitle>
+                        <CardTitle className="text-base">{getDoctorDisplayName({ name: row.doctor_name, type: row.doctor_type, custom_label: row.custom_label })}</CardTitle>
                         <p className="text-sm text-muted-foreground mt-0.5">{doctorTypeLabel(row)}</p>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -658,6 +659,8 @@ function buildPrintHTML({ row, closing, transactions, salaries, month, year }: P
     row.doctor_type === 'extern' ? 'Extern (40%)' :
     row.custom_label ? `Custom — ${row.custom_label}` : `Custom (${row.custom_percentage}%)`;
 
+  const doctorDisplayName = getDoctorDisplayName({ name: row.doctor_name, type: row.doctor_type, custom_label: row.custom_label });
+
   const amountToPay = fmt(closing?.amount_to_pay ?? row.doctor_gross_earnings);
 
   const txRows = transactions.map((tx: any) => `
@@ -716,7 +719,7 @@ function buildPrintHTML({ row, closing, transactions, salaries, month, year }: P
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Iconic Finance — ${row.doctor_name} — ${monthName} ${year}</title>
+  <title>Iconic Finance — ${doctorDisplayName} — ${monthName} ${year}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #111; background: #fff; padding: 32px; max-width: 960px; margin: 0 auto; font-size: 13px; }
@@ -753,7 +756,7 @@ function buildPrintHTML({ row, closing, transactions, salaries, month, year }: P
   </div>
 
   <div class="meta">
-    <p><strong>Doctor:</strong> ${row.doctor_name}</p>
+    <p><strong>Doctor:</strong> ${doctorDisplayName}</p>
     <p><strong>Type:</strong> ${typeLabel}</p>
     <p><strong>Period:</strong> ${monthName} ${year}</p>
     ${confirmedLine}

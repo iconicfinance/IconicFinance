@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { getAllUsers, createUser, updateUser, User } from '@/services/users';
-import { getAllDoctors, getDoctorTypeLabel, Doctor } from '@/services/doctors';
+import { getAllDoctors, getDoctorTypeLabel, getDoctorDisplayName, Doctor } from '@/services/doctors';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -145,7 +145,8 @@ export default function AdminUsers() {
 
   const getDoctorName = (doctorId: string | null) => {
     if (!doctorId) return '—';
-    return doctors.find((d) => d.id === doctorId)?.name || '—';
+    const d = doctors.find((d) => d.id === doctorId);
+    return d ? getDoctorDisplayName(d) : '—';
   };
 
   return (

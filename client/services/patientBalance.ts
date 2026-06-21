@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/lib/supabase';
+import { getDoctorDisplayName } from '@/services/doctors';
 
 export interface PatientBalance {
   id: string;
@@ -60,17 +61,20 @@ const enrichBalances = async (
 
   const [{ data: patients }, { data: doctors }] = await Promise.all([
     supabase.from('patients').select('id, full_name, patient_code').in('id', patientIds),
-    supabase.from('doctors').select('id, name').in('id', doctorIds),
+    supabase.from('doctors').select('id, name, type, custom_label').in('id', doctorIds),
   ]);
   const pm = new Map((patients || []).map((p: any) => [p.id, p]));
   const dm = new Map((doctors  || []).map((d: any) => [d.id, d]));
 
-  return balances.map((b) => ({
-    ...b,
-    patient_name: pm.get(b.patient_id)?.full_name    ?? '',
-    patient_code: pm.get(b.patient_id)?.patient_code ?? '',
-    doctor_name:  dm.get(b.doctor_id)?.name           ?? '',
-  }));
+  return balances.map((b) => {
+    const doc = dm.get(b.doctor_id);
+    return {
+      ...b,
+      patient_name: pm.get(b.patient_id)?.full_name    ?? '',
+      patient_code: pm.get(b.patient_id)?.patient_code ?? '',
+      doctor_name:  doc ? getDoctorDisplayName(doc) : '',
+    };
+  });
 };
 
 export const getAllOutstandingBalances = async (): Promise<PatientBalanceFull[]> => {
@@ -111,9 +115,12 @@ export const getBalancesForPatientIds = async (
   if (!balances || balances.length === 0) return new Map();
 
   const doctorIds = [...new Set(balances.map((b: any) => b.doctor_id))];
-  const { data: doctors } = await supabase.from('doctors').select('id, name').in('id', doctorIds);
-  const dm = new Map((doctors || []).map((d: any) => [d.id, d.name]));
-  return new Map(balances.map((b: any) => [b.patient_id, { ...b, doctor_name: dm.get(b.doctor_id) ?? '' }]));
+  const { data: doctors } = await supabase.from('doctors').select('id, name, type, custom_label').in('id', doctorIds);
+  const dm = new Map((doctors || []).map((d: any) => [d.id, d]));
+  return new Map(balances.map((b: any) => {
+    const doc = dm.get(b.doctor_id);
+    return [b.patient_id, { ...b, doctor_name: doc ? getDoctorDisplayName(doc) : '' }];
+  }));
 };
 
 /**

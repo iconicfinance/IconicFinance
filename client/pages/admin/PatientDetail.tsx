@@ -10,7 +10,7 @@ import {
 import { getPatientById, type Patient } from '@/services/patients';
 import { getTransactionsByDateRange, deleteTransaction, type Transaction } from '@/services/transactions';
 import { getAllBalancesForPatient, getBalanceEvents, type PatientBalanceFull, type BalanceEvent } from '@/services/patientBalance';
-import { getAllDoctors, type Doctor } from '@/services/doctors';
+import { getAllDoctors, getDoctorDisplayName, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { EditTransactionModal } from './EditTransactionModal';
@@ -75,7 +75,10 @@ export default function AdminPatientDetail() {
     load();
   }, [patientId, loadBalances]);
 
-  const getDoctorName = (id: string | null) => doctors.find((d) => d.id === id)?.name || '—';
+  const getDoctorName = (id: string | null) => {
+    const d = doctors.find((d) => d.id === id);
+    return d ? getDoctorDisplayName(d) : '—';
+  };
   const totalRevenue  = transactions.reduce((s, t) => s + Number(t.final_amount), 0);
   const balanceMap = new Map(doctorBalances.map((b) => [b.doctor_id, b]));
   const getBalanceFor = (tx: Transaction) => (tx.doctor_id ? balanceMap.get(tx.doctor_id) : undefined);

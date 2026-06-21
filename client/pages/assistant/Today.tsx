@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PaymentMethodIcon } from '@/components/PaymentMethodIcon';
 import { getTodayTransactions, getTransactionsByDateRange, type Transaction } from '@/services/transactions';
-import { getActiveDoctors, type Doctor } from '@/services/doctors';
+import { getActiveDoctors, getDoctorDisplayName, type Doctor } from '@/services/doctors';
 import { getBalancesForPatientDoctorPairs, type PatientBalance } from '@/services/patientBalance';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -39,8 +39,10 @@ export default function AssistantToday() {
     return { from, to };
   };
 
-  const getDoctorName = (id: string | null) =>
-    doctors.find((d) => d.id === id)?.name || '—';
+  const getDoctorName = (id: string | null) => {
+    const d = doctors.find((d) => d.id === id);
+    return d ? getDoctorDisplayName(d) : '—';
+  };
 
   const loadData = async () => {
     setLoading(true);

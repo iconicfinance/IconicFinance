@@ -29,7 +29,7 @@ import { getActiveLabs, type Lab } from '@/services/labs';
 import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
 
 const PAGE_SIZE = 30;
-import { getAllDoctors, Doctor } from '@/services/doctors';
+import { getAllDoctors, getDoctorDisplayName, Doctor } from '@/services/doctors';
 import {
   formatCurrency,
   formatDate,
@@ -176,7 +176,10 @@ export default function AdminDashboard() {
   const labFeesTotal = payments.filter((t) => t.has_lab_fees && t.lab_fees_amount).reduce((s, t) => s + Number(t.lab_fees_amount), 0);
   const pendingCount = payments.filter((t) => t.lab_fees_pending).length;
 
-  const getDoctorName = (id: string | null) => doctors.find((d) => d.id === id)?.name || '—';
+  const getDoctorName = (id: string | null) => {
+    const d = doctors.find((d) => d.id === id);
+    return d ? getDoctorDisplayName(d) : '—';
+  };
 
   const openLabFeeModal = (tx: Transaction) => {
     setLabFeeModal(tx);
