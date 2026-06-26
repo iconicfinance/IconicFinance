@@ -1,5 +1,5 @@
 import "./global.css";
-import { Component, type ReactNode } from "react";
+import { Component, Suspense, lazy, type ReactNode } from "react";
 
 import { Toaster } from "@/components/ui/toaster";
 import { createRoot } from "react-dom/client";
@@ -35,7 +35,10 @@ import AdminMonthlyClosure from "./pages/admin/MonthlyClosure";
 import AdminPatientDetail from "./pages/admin/PatientDetail";
 import AdminLabConfig from "./pages/admin/LabConfig";
 import AdminPatients from "./pages/admin/AdminPatients";
-import AdminAnalytics from "./pages/admin/Analytics";
+
+// Lazy-loaded: pulls in recharts, which is otherwise unused by the rest of
+// the app — keeping it out of the main bundle so every login doesn't pay for it.
+const AdminAnalytics = lazy(() => import("./pages/admin/Analytics"));
 
 const queryClient = new QueryClient();
 
@@ -274,7 +277,9 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["admin"]}>
                   <LayoutRoute>
-                    <AdminAnalytics />
+                    <Suspense fallback={<div className="flex items-center justify-center py-20">Loading...</div>}>
+                      <AdminAnalytics />
+                    </Suspense>
                   </LayoutRoute>
                 </ProtectedRoute>
               }
