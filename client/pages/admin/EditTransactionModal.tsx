@@ -166,16 +166,19 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
         } else {
           const newTotal = parseFloat(totalClinical);
           if (newTotal > 0) {
+            // The transaction being edited is itself a payment — credit its
+            // amount toward the new balance instead of starting it at 0.
+            const creditedAmount = Math.min(baseNum, newTotal);
             logBalanceEvent({
               patient_id: selectedPatient.id, doctor_id: doctorId,
               event_type: 'balance_created',
               old_total: null, new_total: newTotal,
-              payment_amount: 0, new_remaining: newTotal,
+              payment_amount: creditedAmount, new_remaining: newTotal - creditedAmount,
               transaction_id: tx.id, notes: null,
             });
             await upsertPatientBalance({
               patient_id: selectedPatient.id, doctor_id: doctorId,
-              total_due: newTotal, total_paid: 0, is_settled: false,
+              total_due: newTotal, total_paid: creditedAmount, is_settled: creditedAmount >= newTotal,
             });
           }
         }
