@@ -49,6 +49,7 @@ export default function AdminDashboard() {
   const [toDate, setToDate] = useState(() => now.toISOString().split('T')[0]);
   const [doctorFilter, setDoctorFilter] = useState('all');
   const [methodFilter, setMethodFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'payment_in' | 'expense_out'>('all');
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [doctors, setDoctors]           = useState<Doctor[]>([]);
@@ -161,6 +162,7 @@ export default function AdminDashboard() {
   const filtered = transactions.filter((tx) => {
     if (doctorFilter !== 'all' && tx.doctor_id !== doctorFilter) return false;
     if (methodFilter !== 'all' && tx.payment_method !== methodFilter) return false;
+    if (typeFilter !== 'all' && tx.type !== typeFilter) return false;
     return true;
   });
 
@@ -281,6 +283,19 @@ export default function AdminDashboard() {
                   <SelectItem value="cash">{t('Cash')}</SelectItem>
                   <SelectItem value="vodafone_cash">{t('Vodafone Cash')}</SelectItem>
                   <SelectItem value="instapay">{t('Instapay')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t('Type')}</Label>
+              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
+                <SelectTrigger className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('All Types')}</SelectItem>
+                  <SelectItem value="payment_in">{t('Payments')}</SelectItem>
+                  <SelectItem value="expense_out">{t('Expenses')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

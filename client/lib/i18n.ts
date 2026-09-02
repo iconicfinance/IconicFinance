@@ -242,6 +242,8 @@ export const ar: Record<string, string> = {
   // ── Today page
   "Today's Transactions": 'معاملات اليوم',
   'Expenses': 'المصروفات',
+  'Payments': 'المدفوعات',
+  'All Types': 'كل الأنواع',
   'No transactions yet today.': 'لا توجد معاملات اليوم بعد.',
   'Time': 'الوقت',
 
