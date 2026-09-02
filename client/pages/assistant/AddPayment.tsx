@@ -22,7 +22,7 @@ import {
   getPatientBalance, upsertPatientBalance, updatePatientBalance, logBalanceEvent,
   type PatientBalance,
 } from '@/services/patientBalance';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, toDatetimeLocalValue, minBackdateValue, maxBackdateValue, parseBackdatedDateTime } from '@/lib/utils';
 import { normalizeNumbers } from '@/lib/i18n';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -37,6 +37,10 @@ export default function AssistantAddPayment() {
     user?.role === 'admin' ? '/admin/dashboard'
     : user?.role === 'doctor' ? '/doctor/dashboard'
     : '/assistant/today';
+
+  // Backdating is an assistant-only affordance — doctors/admins reach this same
+  // component via the shared /add-payment /add-expense routes.
+  const canBackdate = user?.role === 'assistant';
 
   // ── Data ───────────────────────────────────────────────────────────────────
   const [doctors, setDoctors]   = useState<Doctor[]>([]);
@@ -68,6 +72,10 @@ export default function AssistantAddPayment() {
   // ── Lab fees ───────────────────────────────────────────────────────────────
   const [hasLabFees, setHasLabFees]   = useState(false);
   const [labEntries, setLabEntries]   = useState<LabEntry[]>([{ labId: '', amount: '' }]);
+
+  // ── Log date ───────────────────────────────────────────────────────────────
+  const [logMode, setLogMode] = useState<'today' | 'previous'>('today');
+  const [pickedDateTime, setPickedDateTime] = useState('');
 
   // ── Misc ───────────────────────────────────────────────────────────────────
   const [description, setDescription] = useState('');
@@ -213,6 +221,15 @@ export default function AssistantAddPayment() {
         setError(t('Please select a payment method.')); setLoading(false); return;
       }
 
+      let createdAt: string | undefined;
+      if (canBackdate && logMode === 'previous') {
+        const result = parseBackdatedDateTime(pickedDateTime);
+        if (result.error) {
+          setError(t(result.error)); setLoading(false); return;
+        }
+        createdAt = result.date.toISOString();
+      }
+
       const validLabs = hasLabFees
         ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
         : [];
@@ -230,6 +247,7 @@ export default function AssistantAddPayment() {
         has_lab_fees: validLabs.length > 0,
         lab_fees_amount: validLabs.length > 0 ? totalLabFees : null,
         expense_description: description.trim() || null,
+        ...(createdAt ? { created_at: createdAt } : {}),
       });
       const txId = tx.id;
 
@@ -324,6 +342,49 @@ export default function AssistantAddPayment() {
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
+            {/* ── Log date ── */}
+            {canBackdate && (
+              <div className="space-y-2">
+                <Label>{t('Log for')}</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={logMode === 'today' ? 'default' : 'outline'}
+                    onClick={() => setLogMode('today')}
+                    className="flex-1"
+                  >
+                    {t('Today')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={logMode === 'previous' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setLogMode('previous');
+                      if (!pickedDateTime) setPickedDateTime(toDatetimeLocalValue(new Date()));
+                    }}
+                    className="flex-1"
+                  >
+                    {t('Previous date')}
+                  </Button>
+                </div>
+                {logMode === 'previous' && (
+                  <div className="space-y-1.5 pt-1">
+                    <Label htmlFor="payment-datetime">{t('Date & time')} *</Label>
+                    <Input
+                      id="payment-datetime"
+                      type="datetime-local"
+                      value={pickedDateTime}
+                      onChange={(e) => setPickedDateTime(e.target.value)}
+                      min={minBackdateValue()}
+                      max={maxBackdateValue()}
+                      dir="ltr"
+                    />
+                    <p className="text-xs text-muted-foreground">{t('You can backdate up to 30 days ago.')}</p>
+                  </div>
+                )}
               </div>
             )}
 

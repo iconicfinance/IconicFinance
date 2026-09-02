@@ -15,6 +15,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { createExpenseOut } from '@/services/transactions';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { toDatetimeLocalValue, minBackdateValue, maxBackdateValue, parseBackdatedDateTime } from '@/lib/utils';
 
 export default function AssistantAddExpense() {
   const navigate = useNavigate();
@@ -26,9 +27,15 @@ export default function AssistantAddExpense() {
     : user?.role === 'doctor' ? '/doctor/dashboard'
     : '/assistant/today';
 
+  // Backdating is an assistant-only affordance — doctors/admins reach this same
+  // component via the shared /add-payment /add-expense routes.
+  const canBackdate = user?.role === 'assistant';
+
   const [description, setDescription] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'vodafone_cash' | 'instapay' | ''>('');
   const [amount, setAmount] = useState('');
+  const [logMode, setLogMode] = useState<'today' | 'previous'>('today');
+  const [pickedDateTime, setPickedDateTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -51,6 +58,16 @@ export default function AssistantAddExpense() {
       return;
     }
 
+    let createdAt: string | undefined;
+    if (canBackdate && logMode === 'previous') {
+      const result = parseBackdatedDateTime(pickedDateTime);
+      if (result.error) {
+        setError(t(result.error));
+        return;
+      }
+      createdAt = result.date.toISOString();
+    }
+
     setError('');
     setLoading(true);
 
@@ -61,6 +78,7 @@ export default function AssistantAddExpense() {
         final_amount: amountNum,
         expense_description: description.trim(),
         payment_method: paymentMethod,
+        ...(createdAt ? { created_at: createdAt } : {}),
       });
 
       setSuccess(true);
@@ -99,6 +117,48 @@ export default function AssistantAddExpense() {
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
+            {canBackdate && (
+              <div className="space-y-2">
+                <Label>{t('Log for')}</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={logMode === 'today' ? 'default' : 'outline'}
+                    onClick={() => setLogMode('today')}
+                    className="flex-1"
+                  >
+                    {t('Today')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={logMode === 'previous' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setLogMode('previous');
+                      if (!pickedDateTime) setPickedDateTime(toDatetimeLocalValue(new Date()));
+                    }}
+                    className="flex-1"
+                  >
+                    {t('Previous date')}
+                  </Button>
+                </div>
+                {logMode === 'previous' && (
+                  <div className="space-y-1.5 pt-1">
+                    <Label htmlFor="expense-datetime">{t('Date & time')} *</Label>
+                    <Input
+                      id="expense-datetime"
+                      type="datetime-local"
+                      value={pickedDateTime}
+                      onChange={(e) => setPickedDateTime(e.target.value)}
+                      min={minBackdateValue()}
+                      max={maxBackdateValue()}
+                      dir="ltr"
+                    />
+                    <p className="text-xs text-muted-foreground">{t('You can backdate up to 30 days ago.')}</p>
+                  </div>
+                )}
               </div>
             )}
 
