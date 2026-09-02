@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader, AlertCircle, Search, X, AlertTriangle, Pencil } from 'lucide-react';
+import { Loader, AlertCircle, Search, X, AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,12 +13,16 @@ import {
 import { Transaction, updateTransaction } from '@/services/transactions';
 import { getAllDoctors, getDoctorTypeLabel, Doctor } from '@/services/doctors';
 import { searchPatients, Patient } from '@/services/patients';
+import { getActiveLabs, type Lab } from '@/services/labs';
+import { getLabFeesForTransaction, saveLabFeesForTransaction } from '@/services/transactionLabFees';
 import {
   getPatientBalance, upsertPatientBalance, updatePatientBalance,
   logBalanceEvent, type PatientBalance,
 } from '@/services/patientBalance';
 import { formatCurrency } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
+
+interface LabEntry { labId: string; amount: string; }
 
 interface Props {
   transaction: Transaction | null;
@@ -50,7 +54,9 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
   const [doctorId, setDoctorId] = useState('');
   const [baseAmount, setBaseAmount] = useState('');
   const [hasLabFees, setHasLabFees] = useState(false);
-  const [labFeesAmount, setLabFeesAmount] = useState('');
+  const [labs, setLabs] = useState<Lab[]>([]);
+  const [labEntries, setLabEntries] = useState<LabEntry[]>([{ labId: '', amount: '' }]);
+  const [labFeesLoading, setLabFeesLoading] = useState(false);
 
   const [balance, setBalance] = useState<PatientBalance | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -69,14 +75,39 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
     setDoctorId(tx.doctor_id || '');
     setBaseAmount(tx.base_amount?.toString() || tx.final_amount?.toString() || '');
     setHasLabFees(tx.has_lab_fees || false);
-    setLabFeesAmount(tx.lab_fees_amount?.toString() || '');
     setEditingTotal(false); setTotalClinical('');
     if (tx.patient_name) {
       setPatientQuery(tx.patient_name);
       setSelectedPatient({ id: tx.patient_id!, full_name: tx.patient_name, patient_code: '', created_at: '', updated_at: '' });
     }
     getAllDoctors().then(setDoctors).catch(console.error);
+    getActiveLabs().then(setLabs).catch(console.error);
+
+    if (tx.type === 'payment_in') {
+      setLabFeesLoading(true);
+      getLabFeesForTransaction(tx.id)
+        .then((rows) => {
+          if (rows.length > 0) {
+            setLabEntries(rows.map((r) => ({ labId: r.lab_id, amount: String(r.amount) })));
+          } else if (tx.has_lab_fees && tx.lab_fees_amount) {
+            // Legacy data: a flat amount was recorded with no lab attached — let the
+            // admin pick a lab for it now instead of silently losing the amount.
+            setLabEntries([{ labId: '', amount: String(tx.lab_fees_amount) }]);
+          } else {
+            setLabEntries([{ labId: '', amount: '' }]);
+          }
+        })
+        .catch(() => setLabEntries([{ labId: '', amount: '' }]))
+        .finally(() => setLabFeesLoading(false));
+    }
   }, [tx]);
+
+  const addLabEntry    = () => setLabEntries((p) => [...p, { labId: '', amount: '' }]);
+  const removeLabEntry = (i: number) => setLabEntries((p) => p.filter((_, idx) => idx !== i));
+  const updateLabEntry = (i: number, field: keyof LabEntry, val: string) =>
+    setLabEntries((p) => p.map((e, idx) => (idx === i ? { ...e, [field]: val } : e)));
+
+  const totalLabFees = labEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
 
   // Load the patient/doctor's outstanding balance so Total/Remaining can be reviewed or corrected
   useEffect(() => {
@@ -128,6 +159,10 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
         created_at: dateTime ? new Date(dateTime).toISOString() : undefined,
       };
 
+      const validLabs = hasLabFees
+        ? labEntries.filter((e) => e.labId && parseFloat(e.amount) > 0)
+        : [];
+
       if (tx.type === 'payment_in') {
         if (!selectedPatient) { setError(t('Patient') + ' ' + t('is required.')); setSaving(false); return; }
         if (!doctorId) { setError(t('Doctor') + ' ' + t('is required.')); setSaving(false); return; }
@@ -137,8 +172,10 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
         updates.doctor_id = doctorId;
         updates.base_amount = baseNum;
         updates.final_amount = finalAmount;
-        updates.has_lab_fees = hasLabFees;
-        updates.lab_fees_amount = hasLabFees && labFeesAmount ? parseFloat(labFeesAmount) : null;
+        updates.has_lab_fees = validLabs.length > 0;
+        updates.lab_fees_amount = validLabs.length > 0
+          ? validLabs.reduce((s, e) => s + parseFloat(e.amount), 0)
+          : null;
       } else {
         if (!description.trim()) { setError(t('Description is required.')); setSaving(false); return; }
         updates.final_amount = baseNum;
@@ -146,6 +183,15 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
       }
 
       const updated = await updateTransaction(tx.id, updates);
+
+      // Keep the per-lab breakdown table in sync with the flat amount above —
+      // this also clears stale rows when lab fees are unchecked/changed.
+      if (tx.type === 'payment_in') {
+        await saveLabFeesForTransaction(
+          tx.id,
+          validLabs.map((e) => ({ lab_id: e.labId, amount: parseFloat(e.amount) }))
+        );
+      }
 
       if (tx.type === 'payment_in' && selectedPatient && doctorId) {
         if (balance) {
@@ -356,11 +402,42 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
           {tx.type === 'payment_in' && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <Checkbox id="edit-lab" checked={hasLabFees} onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabFeesAmount(''); }} />
+                <Checkbox
+                  id="edit-lab"
+                  checked={hasLabFees}
+                  onCheckedChange={(v) => { setHasLabFees(!!v); if (!v) setLabEntries([{ labId: '', amount: '' }]); }}
+                />
                 <Label htmlFor="edit-lab" className="cursor-pointer">{t('Lab fees included?')}</Label>
+                {labFeesLoading && <Loader className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
               </div>
               {hasLabFees && (
-                <Input type="number" min="0" step="0.01" placeholder={t('Lab fees amount')} value={labFeesAmount} onChange={(e) => setLabFeesAmount(e.target.value)} />
+                <div className="pl-6 space-y-2">
+                  {labEntries.map((entry, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Select value={entry.labId} onValueChange={(v) => updateLabEntry(i, 'labId', v)}>
+                        <SelectTrigger className="flex-1 h-9"><SelectValue placeholder={t('Select lab')} /></SelectTrigger>
+                        <SelectContent>
+                          {labs.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number" min="0" step="0.01" placeholder="Amount"
+                        value={entry.amount}
+                        onChange={(e) => updateLabEntry(i, 'amount', e.target.value)}
+                        className="w-28 h-9"
+                      />
+                      {labEntries.length > 1 && (
+                        <button type="button" onClick={() => removeLabEntry(i)}>
+                          <Trash2 className="w-4 h-4 text-red-400 hover:text-red-600" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={addLabEntry} className="flex items-center gap-1 text-sm text-primary hover:underline">
+                    <Plus className="w-3.5 h-3.5" /> {t('Add another lab')}
+                  </button>
+                  {totalLabFees > 0 && <p className="text-xs text-muted-foreground">Total lab fees: <strong>{formatCurrency(totalLabFees)}</strong></p>}
+                </div>
               )}
             </div>
           )}
