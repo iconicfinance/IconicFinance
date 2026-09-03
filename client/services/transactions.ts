@@ -1,5 +1,5 @@
 import { getSupabaseClient } from '@/lib/supabase';
-import { recomputeAndSyncBalance, reconcileBalanceForEditedTransaction } from './patientBalance';
+import { reconcileBalanceForEditedTransaction } from './patientBalance';
 
 export interface Transaction {
   id: string;
@@ -208,22 +208,12 @@ export const updateTransaction = async (
 export const deleteTransaction = async (id: string): Promise<void> => {
   const supabase = getSupabaseClient();
 
-  // Find which patient/doctor balance(s) this transaction's events affected,
-  // so we can recompute them after its events are gone.
-  const { data: ownEvents, error: ownEventsError } = await supabase
-    .from('patient_balance_events')
-    .select('patient_id, doctor_id')
-    .eq('transaction_id', id);
-  if (ownEventsError) throw ownEventsError;
-  const pairs = [...new Set((ownEvents || []).map((e: any) => `${e.patient_id}|${e.doctor_id}`))];
-
-  // Remove this transaction's own balance events — they no longer apply once it's gone.
-  await supabase.from('patient_balance_events').delete().eq('transaction_id', id);
-
-  for (const pairKey of pairs) {
-    const [patientId, doctorId] = pairKey.split('|');
-    await recomputeAndSyncBalance(patientId, doctorId);
-  }
+  // Atomically removes this transaction's own balance events and recomputes
+  // whichever balance(s) they affected (public.remove_transaction_balance).
+  const { error: balanceError } = await supabase.rpc('remove_transaction_balance', {
+    p_transaction_id: id,
+  });
+  if (balanceError) throw balanceError;
 
   await supabase.from('transaction_lab_fees').delete().eq('transaction_id', id);
   const { error } = await supabase.from('transactions').delete().eq('id', id);

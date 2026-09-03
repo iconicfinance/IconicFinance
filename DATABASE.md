@@ -772,3 +772,309 @@ SELECT auth.create_user(
 -- RPCs created:      get_monthly_closing_summary, get_daily_totals,
 --                    get_monthly_totals
 -- ============================================================
+
+
+-- ============================================================
+-- SECTION 16 — PATIENT BALANCE: ATOMIC RPCs (added later)
+-- ============================================================
+-- NOTE: public.patient_balance and public.patient_balance_events
+-- were added to the live database after this master file was
+-- originally written, so their CREATE TABLE statements are not
+-- above. For reference, their columns (as used by the app) are:
+--
+--   patient_balance (
+--     id UUID PK, patient_id UUID, doctor_id UUID,
+--     total_due NUMERIC, total_paid NUMERIC, is_settled BOOLEAN,
+--     notes TEXT, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ,
+--     UNIQUE (patient_id, doctor_id)   -- required for the upserts below
+--   )
+--   patient_balance_events (
+--     id UUID PK, patient_id UUID, doctor_id UUID,
+--     event_type TEXT,  -- 'balance_created' | 'total_updated' | 'payment'
+--     old_total NUMERIC, new_total NUMERIC, payment_amount NUMERIC,
+--     new_remaining NUMERIC, transaction_id UUID, notes TEXT,
+--     created_at TIMESTAMPTZ
+--   )
+--
+-- WHY THIS SECTION EXISTS:
+-- The app used to read a patient's balance into the browser,
+-- compute total_paid + newPayment in JavaScript, then write the
+-- whole new number back (a classic read-modify-write). That's a
+-- race condition: if the balance was still loading when Save was
+-- clicked, or if two staff members touched the same patient's
+-- balance around the same time, a payment could be recorded as a
+-- transaction but never actually credited to the balance — silently.
+-- This happened in production (Aug 2026) for at least two patients.
+--
+-- These functions move the read-modify-write into a single atomic
+-- Postgres statement per balance row, so there is no window for a
+-- slow network or a second concurrent user to cause a lost update.
+-- ============================================================
+
+-- ----------------------------------------------------------
+-- 16.1  credit_patient_balance
+-- Atomically creates or updates a patient_balance row (crediting
+-- a payment and/or changing total_due) and logs the matching
+-- patient_balance_events row in the same statement/transaction.
+-- Used by: Add Payment (assistant + admin), Edit Transaction's
+-- "Total Clinical" / "Change total" actions.
+-- ----------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.credit_patient_balance(
+    p_patient_id     UUID,
+    p_doctor_id      UUID,
+    p_amount         NUMERIC,      -- amount to credit toward total_paid (0 if only changing total)
+    p_new_total_due  NUMERIC,      -- NULL = leave total_due unchanged; required when no balance exists yet
+    p_transaction_id UUID,
+    p_notes          TEXT DEFAULT NULL,
+    p_reset          BOOLEAN DEFAULT FALSE  -- true = start a fresh cycle: total_paid becomes p_amount,
+                                             -- not existing total_paid + p_amount. Use this whenever the
+                                             -- caller found no *active* (unsettled) balance client-side —
+                                             -- the row may still physically exist from a prior, fully-paid
+                                             -- cycle, and its stale total_paid must not carry forward.
+)
+RETURNS public.patient_balance
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_balance    public.patient_balance%ROWTYPE;
+    v_existed    BOOLEAN;
+    v_old_total  NUMERIC;
+    v_event_type TEXT;
+BEGIN
+    IF p_patient_id IS NULL OR p_doctor_id IS NULL THEN
+        RAISE EXCEPTION 'patient_id and doctor_id are required';
+    END IF;
+
+    SELECT total_due INTO v_old_total
+    FROM public.patient_balance
+    WHERE patient_id = p_patient_id AND doctor_id = p_doctor_id;
+    v_existed := FOUND;
+
+    IF (NOT v_existed OR p_reset) AND p_new_total_due IS NULL THEN
+        RAISE EXCEPTION 'new_total_due is required when creating or resetting a balance';
+    END IF;
+
+    -- Atomic upsert: the increment happens against whatever total_paid
+    -- is at the moment this statement runs, not a value read earlier —
+    -- concurrent callers for the same (patient_id, doctor_id) serialize
+    -- on this row instead of overwriting each other. When p_reset is
+    -- true, total_paid is overwritten instead of incremented, since a
+    -- fresh cycle must not inherit a prior (already-settled) cycle's
+    -- total_paid still sitting on the row.
+    INSERT INTO public.patient_balance (patient_id, doctor_id, total_due, total_paid, is_settled)
+    VALUES (
+        p_patient_id, p_doctor_id,
+        COALESCE(p_new_total_due, 0),
+        COALESCE(p_amount, 0),
+        COALESCE(p_amount, 0) >= COALESCE(p_new_total_due, 0)
+    )
+    ON CONFLICT (patient_id, doctor_id) DO UPDATE
+    SET total_paid = CASE WHEN p_reset
+                          THEN COALESCE(p_amount, 0)
+                          ELSE public.patient_balance.total_paid + COALESCE(p_amount, 0)
+                     END,
+        total_due  = COALESCE(p_new_total_due, public.patient_balance.total_due),
+        is_settled = (CASE WHEN p_reset
+                          THEN COALESCE(p_amount, 0)
+                          ELSE public.patient_balance.total_paid + COALESCE(p_amount, 0)
+                     END) >= COALESCE(p_new_total_due, public.patient_balance.total_due),
+        updated_at = now()
+    RETURNING * INTO v_balance;
+
+    v_event_type := CASE
+        WHEN NOT v_existed OR p_reset THEN 'balance_created'
+        WHEN p_new_total_due IS NOT NULL AND p_new_total_due <> v_old_total THEN 'total_updated'
+        ELSE 'payment'
+    END;
+
+    INSERT INTO public.patient_balance_events (
+        patient_id, doctor_id, event_type, old_total, new_total,
+        payment_amount, new_remaining, transaction_id, notes
+    ) VALUES (
+        p_patient_id, p_doctor_id, v_event_type,
+        CASE WHEN p_reset THEN NULL ELSE v_old_total END, v_balance.total_due,
+        p_amount, GREATEST(v_balance.total_due - v_balance.total_paid, 0),
+        p_transaction_id, p_notes
+    );
+
+    RETURN v_balance;
+END;
+$$;
+
+-- ----------------------------------------------------------
+-- 16.2  recompute_patient_balance
+-- Atomically re-derives total_due/total_paid for one balance by
+-- replaying its patient_balance_events history in a single
+-- statement (no client round-trip in between reading events and
+-- writing the result). Deletes the balance row if the replay
+-- shows nothing outstanding. Used after a linked transaction is
+-- edited or deleted.
+--
+-- IMPORTANT: total_paid is scoped to events *since the most recent
+-- balance_created event*, not all history — the same (patient_id,
+-- doctor_id) row is reused across separate treatment cycles (a new
+-- cycle starts once a prior one is fully settled), and a prior
+-- cycle's payments must not bleed into the current cycle's total.
+-- ----------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.recompute_patient_balance(
+    p_patient_id UUID,
+    p_doctor_id  UUID
+)
+RETURNS public.patient_balance
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_balance          public.patient_balance%ROWTYPE;
+    v_total_due        NUMERIC;
+    v_cycle_started_at TIMESTAMPTZ;
+    v_cycle_opening    NUMERIC;
+    v_payments_since   NUMERIC;
+    v_total_paid       NUMERIC;
+BEGIN
+    SELECT * INTO v_balance
+    FROM public.patient_balance
+    WHERE patient_id = p_patient_id AND doctor_id = p_doctor_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT new_total INTO v_total_due
+    FROM public.patient_balance_events
+    WHERE patient_id = p_patient_id AND doctor_id = p_doctor_id
+      AND event_type IN ('balance_created', 'total_updated')
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1;
+
+    -- Scope total_paid to the current cycle: its opening balance_created
+    -- credit, plus any 'payment' events logged after that cycle began.
+    SELECT created_at, payment_amount INTO v_cycle_started_at, v_cycle_opening
+    FROM public.patient_balance_events
+    WHERE patient_id = p_patient_id AND doctor_id = p_doctor_id
+      AND event_type = 'balance_created'
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1;
+
+    IF v_cycle_started_at IS NULL THEN
+        v_total_paid := 0;
+    ELSE
+        SELECT COALESCE(SUM(payment_amount), 0) INTO v_payments_since
+        FROM public.patient_balance_events
+        WHERE patient_id = p_patient_id AND doctor_id = p_doctor_id
+          AND event_type = 'payment'
+          AND created_at > v_cycle_started_at;
+        v_total_paid := COALESCE(v_cycle_opening, 0) + COALESCE(v_payments_since, 0);
+    END IF;
+
+    v_total_due  := COALESCE(v_total_due, 0);
+    v_total_paid := GREATEST(0, LEAST(v_total_paid, v_total_due));
+
+    IF v_total_due <= 0 AND v_total_paid <= 0 THEN
+        DELETE FROM public.patient_balance WHERE id = v_balance.id;
+        RETURN NULL;
+    END IF;
+
+    UPDATE public.patient_balance
+    SET total_due  = v_total_due,
+        total_paid = v_total_paid,
+        is_settled = v_total_paid >= v_total_due,
+        updated_at = now()
+    WHERE id = v_balance.id
+    RETURNING * INTO v_balance;
+
+    RETURN v_balance;
+END;
+$$;
+
+-- ----------------------------------------------------------
+-- 16.3  reconcile_transaction_balance
+-- Atomic replacement for the old reconcileBalanceForEditedTransaction
+-- client logic: patches the payment_amount (and patient/doctor, if
+-- the transaction was reassigned) on whichever patient_balance_events
+-- row is tied to this transaction, then recomputes the affected
+-- balance(s). No-ops if the transaction was never linked to a
+-- balance event in the first place (nothing to reconcile).
+-- ----------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.reconcile_transaction_balance(
+    p_transaction_id    UUID,
+    p_before_patient_id UUID,
+    p_before_doctor_id  UUID,
+    p_after_patient_id  UUID,
+    p_after_doctor_id   UUID,
+    p_credited_amount   NUMERIC
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_moved      BOOLEAN;
+    v_has_events BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1 FROM public.patient_balance_events WHERE transaction_id = p_transaction_id
+    ) INTO v_has_events;
+
+    IF NOT v_has_events THEN
+        RETURN;
+    END IF;
+
+    v_moved := (p_before_patient_id IS DISTINCT FROM p_after_patient_id)
+            OR (p_before_doctor_id  IS DISTINCT FROM p_after_doctor_id);
+
+    UPDATE public.patient_balance_events
+    SET payment_amount = p_credited_amount,
+        patient_id = CASE WHEN v_moved THEN p_after_patient_id ELSE patient_id END,
+        doctor_id  = CASE WHEN v_moved THEN p_after_doctor_id  ELSE doctor_id  END
+    WHERE transaction_id = p_transaction_id
+      AND event_type IN ('payment', 'balance_created');
+
+    IF p_before_patient_id IS NOT NULL AND p_before_doctor_id IS NOT NULL THEN
+        PERFORM public.recompute_patient_balance(p_before_patient_id, p_before_doctor_id);
+    END IF;
+
+    IF v_moved AND p_after_patient_id IS NOT NULL AND p_after_doctor_id IS NOT NULL THEN
+        INSERT INTO public.patient_balance (patient_id, doctor_id, total_due, total_paid, is_settled)
+        VALUES (p_after_patient_id, p_after_doctor_id, 0, 0, true)
+        ON CONFLICT (patient_id, doctor_id) DO NOTHING;
+
+        PERFORM public.recompute_patient_balance(p_after_patient_id, p_after_doctor_id);
+    END IF;
+END;
+$$;
+
+-- ----------------------------------------------------------
+-- 16.4  remove_transaction_balance
+-- Atomic replacement for deleteTransaction's balance cleanup:
+-- deletes whichever patient_balance_events rows are tied to this
+-- transaction, then recomputes the affected balance.
+-- ----------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.remove_transaction_balance(
+    p_transaction_id UUID
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN
+        SELECT DISTINCT patient_id, doctor_id
+        FROM public.patient_balance_events
+        WHERE transaction_id = p_transaction_id
+    LOOP
+        DELETE FROM public.patient_balance_events
+        WHERE transaction_id = p_transaction_id
+          AND patient_id = r.patient_id AND doctor_id = r.doctor_id;
+        PERFORM public.recompute_patient_balance(r.patient_id, r.doctor_id);
+    END LOOP;
+END;
+$$;
+
+-- ----------------------------------------------------------
+-- 16.5  Grants
+-- ----------------------------------------------------------
+GRANT EXECUTE ON FUNCTION public.credit_patient_balance(UUID, UUID, NUMERIC, NUMERIC, UUID, TEXT, BOOLEAN) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.recompute_patient_balance(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reconcile_transaction_balance(UUID, UUID, UUID, UUID, UUID, NUMERIC) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.remove_transaction_balance(UUID) TO authenticated;

@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { getTransactionsByDateRange, updateLabFees, deleteTransaction, type Transaction } from '@/services/transactions';
-import { getBalancesForPatientDoctorPairs, type PatientBalance } from '@/services/patientBalance';
+import { getBalanceEventsForTransactionIds, type BalanceEvent } from '@/services/patientBalance';
 import { getActiveLabs, type Lab } from '@/services/labs';
 import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
 
@@ -53,7 +53,7 @@ export default function AdminDashboard() {
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [doctors, setDoctors]           = useState<Doctor[]>([]);
-  const [balanceMap, setBalanceMap]     = useState<Map<string, PatientBalance>>(new Map());
+  const [eventByTx, setEventByTx]       = useState<Map<string, BalanceEvent>>(new Map());
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
   const [txOffset, setTxOffset]         = useState(0);
@@ -151,13 +151,24 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    getBalancesForPatientDoctorPairs(
-      transactions.map((tx) => ({ patient_id: tx.patient_id, doctor_id: tx.doctor_id }))
-    ).then(setBalanceMap).catch(() => {});
+    const txIds = transactions.filter((tx) => tx.type === 'payment_in').map((tx) => tx.id);
+    getBalanceEventsForTransactionIds(txIds)
+      .then((events) => {
+        // events are ascending by created_at — later entries overwrite earlier
+        // ones, so each transaction ends up mapped to its LATEST linked event
+        // (a transaction can have two, e.g. a total change plus a payment).
+        const map = new Map<string, BalanceEvent>();
+        for (const e of events) {
+          if (e.transaction_id) map.set(e.transaction_id, e);
+        }
+        setEventByTx(map);
+      })
+      .catch(() => setEventByTx(new Map()));
   }, [transactions]);
 
-  const getBalanceFor = (tx: Transaction) =>
-    tx.patient_id && tx.doctor_id ? balanceMap.get(`${tx.patient_id}_${tx.doctor_id}`) : undefined;
+  // The balance as it stood right after this specific transaction — not the
+  // patient's current balance, which would be the same on every row.
+  const getBalanceFor = (tx: Transaction) => eventByTx.get(tx.id);
 
   const filtered = transactions.filter((tx) => {
     if (doctorFilter !== 'all' && tx.doctor_id !== doctorFilter) return false;
@@ -456,10 +467,10 @@ export default function AdminDashboard() {
                       <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
                       <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.total_due) : '—'}
+                        {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.new_total) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.total_due - getBalanceFor(tx)!.total_paid) : '—'}
+                        {getBalanceFor(tx) ? formatCurrency(getBalanceFor(tx)!.new_remaining) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {tx.lab_fees_pending ? (

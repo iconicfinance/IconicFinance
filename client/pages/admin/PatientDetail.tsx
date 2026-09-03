@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, Loader, AlertTriangle, CheckCircle2, PenLine, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,10 @@ import {
 } from '@/components/ui/dialog';
 import { getPatientById, type Patient } from '@/services/patients';
 import { getTransactionsByDateRange, deleteTransaction, type Transaction } from '@/services/transactions';
-import { getAllBalancesForPatient, getBalanceEvents, type PatientBalanceFull, type BalanceEvent } from '@/services/patientBalance';
+import {
+  getAllBalancesForPatient, getBalanceEvents, getBalanceEventsForTransactionIds,
+  type PatientBalanceFull, type BalanceEvent,
+} from '@/services/patientBalance';
 import { getAllDoctors, getDoctorDisplayName, type Doctor } from '@/services/doctors';
 import { formatCurrency, formatDate, formatTime, formatPaymentMethod } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -34,6 +37,8 @@ export default function AdminPatientDetail() {
   const [editingTx, setEditingTx]   = useState<Transaction | null>(null);
   const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
   const [deleting, setDeleting]     = useState(false);
+
+  const [eventByTx, setEventByTx]   = useState<Map<string, BalanceEvent>>(new Map());
 
   const loadBalances = useCallback(async () => {
     if (!patientId) return;
@@ -75,13 +80,36 @@ export default function AdminPatientDetail() {
     load();
   }, [patientId, loadBalances]);
 
+  useEffect(() => {
+    const txIds = transactions.map((tx) => tx.id);
+    getBalanceEventsForTransactionIds(txIds)
+      .then((events) => {
+        // events are ascending by created_at — later entries overwrite earlier
+        // ones, so each transaction ends up mapped to its LATEST linked event
+        // (a transaction can have two, e.g. a total change plus a payment).
+        const map = new Map<string, BalanceEvent>();
+        for (const e of events) {
+          if (e.transaction_id) map.set(e.transaction_id, e);
+        }
+        setEventByTx(map);
+      })
+      .catch(() => setEventByTx(new Map()));
+  }, [transactions]);
+
   const getDoctorName = (id: string | null) => {
     const d = doctors.find((d) => d.id === id);
     return d ? getDoctorDisplayName(d) : '—';
   };
   const totalRevenue  = transactions.reduce((s, t) => s + Number(t.final_amount), 0);
-  const balanceMap = new Map(doctorBalances.map((b) => [b.doctor_id, b]));
-  const getBalanceFor = (tx: Transaction) => (tx.doctor_id ? balanceMap.get(tx.doctor_id) : undefined);
+
+  // The balance as it stood right after this specific transaction — not the
+  // patient's current balance, which would be the same on every row.
+  const getBalanceFor = (tx: Transaction) => eventByTx.get(tx.id);
+
+  // A transaction that started a brand-new balance cycle (not just topped up
+  // an existing one) — used to draw a divider before older, already-settled
+  // history in the transactions table below.
+  const isCycleStart = (tx: Transaction) => eventByTx.get(tx.id)?.event_type === 'balance_created';
 
   const eventIcon = (type: BalanceEvent['event_type']) => {
     if (type === 'balance_created') return <PenLine className="w-3.5 h-3.5 text-blue-500" />;
@@ -249,10 +277,12 @@ export default function AdminPatientDetail() {
                       </tr>
                     </thead>
                     <tbody>
-                      {transactions.map((tx) => {
+                      {transactions.map((tx, idx) => {
                         const bal = getBalanceFor(tx);
+                        const showCycleDivider = isCycleStart(tx) && idx < transactions.length - 1;
                         return (
-                        <tr key={tx.id} className={`border-b last:border-0 hover:bg-muted/20 ${tx.lab_fees_pending ? 'bg-amber-50' : ''}`}>
+                        <Fragment key={tx.id}>
+                        <tr className={`border-b last:border-0 hover:bg-muted/20 ${tx.lab_fees_pending ? 'bg-amber-50' : ''}`}>
                           <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
                             {formatDate(tx.created_at)}<br />
                             <span className="text-xs">{formatTime(tx.created_at)}</span>
@@ -260,8 +290,8 @@ export default function AdminPatientDetail() {
                           <td className="px-4 py-3 whitespace-nowrap">{getDoctorName(tx.doctor_id)}</td>
                           <td className="px-4 py-3 whitespace-nowrap">{formatPaymentMethod(tx.payment_method)}</td>
                           <td className="px-4 py-3 text-right font-medium whitespace-nowrap">{formatCurrency(tx.final_amount)}</td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">{bal ? formatCurrency(bal.total_due) : '—'}</td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">{bal ? formatCurrency(bal.total_due - bal.total_paid) : '—'}</td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">{bal ? formatCurrency(bal.new_total) : '—'}</td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">{bal ? formatCurrency(bal.new_remaining) : '—'}</td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">
                             {tx.lab_fees_pending ? (
                               <span className="flex items-center justify-end gap-1 text-amber-600 text-xs">
@@ -295,6 +325,14 @@ export default function AdminPatientDetail() {
                             </div>
                           </td>
                         </tr>
+                        {showCycleDivider && (
+                          <tr className="border-y border-red-200 bg-red-50">
+                            <td colSpan={11} className="px-4 py-2 text-center text-xs font-semibold text-red-600">
+                              ▲ Current balance starts here — previous balance below was paid in full ▼
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                         );
                       })}
                     </tbody>

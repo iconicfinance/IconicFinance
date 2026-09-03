@@ -16,8 +16,7 @@ import { searchPatients, Patient } from '@/services/patients';
 import { getActiveLabs, type Lab } from '@/services/labs';
 import { getLabFeesForTransaction, saveLabFeesForTransaction } from '@/services/transactionLabFees';
 import {
-  getPatientBalance, upsertPatientBalance, updatePatientBalance,
-  logBalanceEvent, type PatientBalance,
+  getPatientBalance, creditPatientBalance, type PatientBalance,
 } from '@/services/patientBalance';
 import { formatCurrency } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -150,6 +149,7 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
 
   const handleSave = async () => {
     if (!tx) return;
+    if (balanceLoading) return; // avoid submitting before the existing balance is known
     setError('');
     setSaving(true);
     try {
@@ -193,20 +193,18 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
         );
       }
 
+      // Both branches below use credit_patient_balance — a single atomic DB
+      // statement per call, so this can never race a concurrent edit/payment
+      // against the same balance. (base_amount changes on an already-linked
+      // transaction are separately re-synced by updateTransaction above, via
+      // reconcile_transaction_balance.)
       if (tx.type === 'payment_in' && selectedPatient && doctorId) {
         if (balance) {
           const parsedTotal = parseFloat(newTotalValue);
           if (!isNaN(parsedTotal) && parsedTotal !== balance.total_due) {
-            logBalanceEvent({
+            await creditPatientBalance({
               patient_id: selectedPatient.id, doctor_id: doctorId,
-              event_type: 'total_updated',
-              old_total: balance.total_due, new_total: parsedTotal,
-              payment_amount: null, new_remaining: parsedTotal - balance.total_paid,
-              transaction_id: tx.id, notes: null,
-            });
-            await updatePatientBalance(balance.id, {
-              total_due: parsedTotal,
-              is_settled: balance.total_paid >= parsedTotal,
+              amount: 0, new_total_due: parsedTotal, transaction_id: tx.id,
             });
           }
         } else {
@@ -215,16 +213,9 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
             // The transaction being edited is itself a payment — credit its
             // amount toward the new balance instead of starting it at 0.
             const creditedAmount = Math.min(baseNum, newTotal);
-            logBalanceEvent({
+            await creditPatientBalance({
               patient_id: selectedPatient.id, doctor_id: doctorId,
-              event_type: 'balance_created',
-              old_total: null, new_total: newTotal,
-              payment_amount: creditedAmount, new_remaining: newTotal - creditedAmount,
-              transaction_id: tx.id, notes: null,
-            });
-            await upsertPatientBalance({
-              patient_id: selectedPatient.id, doctor_id: doctorId,
-              total_due: newTotal, total_paid: creditedAmount, is_settled: creditedAmount >= newTotal,
+              amount: creditedAmount, new_total_due: newTotal, transaction_id: tx.id, reset: true,
             });
           }
         }
@@ -455,9 +446,9 @@ export function EditTransactionModal({ transaction: tx, onClose, onSaved }: Prop
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{t('Cancel')}</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving && <Loader className="w-4 h-4 me-2 animate-spin" />}
-            {saving ? t('Saving...') : t('Save Changes')}
+          <Button onClick={handleSave} disabled={saving || balanceLoading}>
+            {(saving || balanceLoading) && <Loader className="w-4 h-4 me-2 animate-spin" />}
+            {saving ? t('Saving...') : balanceLoading ? t('Checking balance...') : t('Save Changes')}
           </Button>
         </DialogFooter>
       </DialogContent>

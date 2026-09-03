@@ -16,8 +16,7 @@ import { getActiveLabs, Lab } from '@/services/labs';
 import { saveLabFeesForTransaction } from '@/services/transactionLabFees';
 import { searchPatients, createPatient, Patient } from '@/services/patients';
 import {
-  getPatientBalance, upsertPatientBalance, updatePatientBalance,
-  logBalanceEvent, type PatientBalance,
+  getPatientBalance, creditPatientBalance, type PatientBalance,
 } from '@/services/patientBalance';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/utils';
@@ -171,6 +170,7 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
 
   // ── Save ──────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
+    if (balanceLoading) return; // avoid submitting before the existing balance is known
     setError('');
     setSaving(true);
 
@@ -233,48 +233,28 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
         }
 
         // ── Balance tracking ────────────────────────────────────────────────────
+        // Uses credit_patient_balance — a single atomic DB statement per call, so
+        // this can never race a concurrent payment against the same balance.
         if (activeBalance) {
-          const newTotalDue  = parseFloat(newTotalValue) || activeBalance.total_due;
-          const newTotalPaid = activeBalance.total_paid + creditToBalance;
-          const newRemaining = Math.max(0, newTotalDue - newTotalPaid);
+          const newTotalDue = parseFloat(newTotalValue) || activeBalance.total_due;
+          const totalChanged = newTotalDue !== activeBalance.total_due;
 
-          if (newTotalDue !== activeBalance.total_due) {
-            logBalanceEvent({
+          if (totalChanged) {
+            await creditPatientBalance({
               patient_id: patientId, doctor_id: doctorId,
-              event_type: 'total_updated',
-              old_total: activeBalance.total_due, new_total: newTotalDue,
-              payment_amount: null, new_remaining: newTotalDue - activeBalance.total_paid,
-              transaction_id: txId, notes: null,
+              amount: 0, new_total_due: newTotalDue, transaction_id: txId,
             });
           }
           if (isRecordingPayment) {
-            logBalanceEvent({
+            await creditPatientBalance({
               patient_id: patientId, doctor_id: doctorId,
-              event_type: 'payment',
-              old_total: null, new_total: newTotalDue,
-              payment_amount: creditToBalance, new_remaining: newRemaining,
-              transaction_id: txId, notes: null,
+              amount: creditToBalance, new_total_due: null, transaction_id: txId,
             });
           }
-          await updatePatientBalance(activeBalance.id, {
-            total_due:  newTotalDue,
-            total_paid: Math.min(newTotalPaid, newTotalDue),
-            is_settled: newTotalPaid >= newTotalDue,
-          });
         } else if (totalClinicalNum > 0) {
-          const newRemaining = Math.max(0, totalClinicalNum - creditToBalance);
-          logBalanceEvent({
+          await creditPatientBalance({
             patient_id: patientId, doctor_id: doctorId,
-            event_type: 'balance_created',
-            old_total: null, new_total: totalClinicalNum,
-            payment_amount: creditToBalance, new_remaining: newRemaining,
-            transaction_id: txId, notes: null,
-          });
-          await upsertPatientBalance({
-            patient_id: patientId, doctor_id: doctorId,
-            total_due:  totalClinicalNum,
-            total_paid: Math.min(creditToBalance, totalClinicalNum),
-            is_settled: creditToBalance >= totalClinicalNum,
+            amount: creditToBalance, new_total_due: totalClinicalNum, transaction_id: txId, reset: true,
           });
         }
 
@@ -605,9 +585,9 @@ export function AddTransactionModal({ open, defaultDate, onClose, onSaved }: Pro
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{t('Cancel')}</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving && <Loader className="w-4 h-4 me-2 animate-spin" />}
-            {saving ? t('Saving...') : t('Add Transaction')}
+          <Button onClick={handleSave} disabled={saving || balanceLoading}>
+            {(saving || balanceLoading) && <Loader className="w-4 h-4 me-2 animate-spin" />}
+            {saving ? t('Saving...') : balanceLoading ? t('Checking balance...') : t('Add Transaction')}
           </Button>
         </DialogFooter>
       </DialogContent>

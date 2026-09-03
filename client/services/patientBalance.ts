@@ -172,59 +172,47 @@ export const getBalanceEvents = async (
 };
 
 /**
+ * Fetches the patient_balance_events tied to a set of transaction IDs — used to
+ * show the balance as it stood right after each specific transaction (its
+ * new_total/new_remaining at that point), instead of the patient's current
+ * balance repeated on every row. A transaction with no linked event was never
+ * part of a tracked balance (e.g. a one-off, paid-in-full visit).
+ */
+export const getBalanceEventsForTransactionIds = async (
+  transactionIds: string[]
+): Promise<BalanceEvent[]> => {
+  if (transactionIds.length === 0) return [];
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('patient_balance_events')
+    .select('*')
+    .in('transaction_id', transactionIds)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+};
+
+/**
  * Re-derives total_due/total_paid for a patient+doctor balance by replaying its
- * remaining event history (in order). Used after a transaction is deleted so its
- * balance_created/total_updated/payment events no longer count toward the total.
+ * event history, atomically in a single DB statement (public.recompute_patient_balance).
+ * Used after a transaction is deleted so its balance_created/total_updated/payment
+ * events no longer count toward the total.
  */
 export const recomputeAndSyncBalance = async (patientId: string, doctorId: string): Promise<void> => {
   const supabase = getSupabaseClient();
-
-  const { data: balance, error: balanceError } = await supabase
-    .from('patient_balance')
-    .select('*')
-    .eq('patient_id', patientId)
-    .eq('doctor_id', doctorId)
-    .maybeSingle();
-  if (balanceError) throw balanceError;
-  if (!balance) return;
-
-  const events = await getBalanceEvents(patientId, doctorId);
-
-  let totalDue = 0;
-  let totalPaid = 0;
-  for (const e of events) {
-    if (e.event_type === 'balance_created') {
-      totalDue = e.new_total ?? totalDue;
-      totalPaid = e.payment_amount ?? 0;
-    } else if (e.event_type === 'total_updated') {
-      totalDue = e.new_total ?? totalDue;
-    } else if (e.event_type === 'payment') {
-      totalPaid += e.payment_amount ?? 0;
-    }
-  }
-  totalPaid = Math.max(0, Math.min(totalPaid, totalDue));
-
-  if (totalDue <= 0 && totalPaid <= 0) {
-    await supabase.from('patient_balance').delete().eq('id', balance.id);
-    return;
-  }
-
-  await supabase
-    .from('patient_balance')
-    .update({
-      total_due: totalDue,
-      total_paid: totalPaid,
-      is_settled: totalPaid >= totalDue,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', balance.id);
+  const { error } = await supabase.rpc('recompute_patient_balance', {
+    p_patient_id: patientId,
+    p_doctor_id: doctorId,
+  });
+  if (error) throw error;
 };
 
 /**
  * Keeps patient_balance in sync when a payment_in transaction is edited.
- * Syncs this transaction's own balance events to the corrected credited amount
- * (and moves them if the transaction's patient/doctor changed), then recomputes
- * whichever balance(s) were affected.
+ * Atomically (public.reconcile_transaction_balance) syncs this transaction's own
+ * balance event to the corrected credited amount (moving it if the transaction's
+ * patient/doctor changed), then recomputes whichever balance(s) were affected.
+ * No-ops if this transaction was never linked to a balance event.
  */
 export const reconcileBalanceForEditedTransaction = async (
   transactionId: string,
@@ -232,90 +220,50 @@ export const reconcileBalanceForEditedTransaction = async (
   after: { patient_id: string | null; doctor_id: string | null; creditedAmount: number }
 ): Promise<void> => {
   const supabase = getSupabaseClient();
-
-  const { data: events, error: eventsError } = await supabase
-    .from('patient_balance_events')
-    .select('*')
-    .eq('transaction_id', transactionId);
-  if (eventsError) throw eventsError;
-  if (!events || events.length === 0) return;
-
-  const moved = before.patient_id !== after.patient_id || before.doctor_id !== after.doctor_id;
-
-  for (const e of events as any[]) {
-    const patch: Record<string, any> = {};
-    if (e.event_type === 'payment' || e.event_type === 'balance_created') {
-      patch.payment_amount = after.creditedAmount;
-    }
-    if (moved) {
-      patch.patient_id = after.patient_id;
-      patch.doctor_id = after.doctor_id;
-    }
-    if (Object.keys(patch).length > 0) {
-      await supabase.from('patient_balance_events').update(patch).eq('id', e.id);
-    }
-  }
-
-  if (before.patient_id && before.doctor_id) {
-    await recomputeAndSyncBalance(before.patient_id, before.doctor_id);
-  }
-
-  if (moved && after.patient_id && after.doctor_id) {
-    const { data: existing } = await supabase
-      .from('patient_balance')
-      .select('id')
-      .eq('patient_id', after.patient_id)
-      .eq('doctor_id', after.doctor_id)
-      .maybeSingle();
-    if (!existing) {
-      await supabase.from('patient_balance').insert({
-        patient_id: after.patient_id, doctor_id: after.doctor_id,
-        total_due: 0, total_paid: 0, is_settled: true,
-      });
-    }
-    await recomputeAndSyncBalance(after.patient_id, after.doctor_id);
-  }
+  const { error } = await supabase.rpc('reconcile_transaction_balance', {
+    p_transaction_id: transactionId,
+    p_before_patient_id: before.patient_id,
+    p_before_doctor_id: before.doctor_id,
+    p_after_patient_id: after.patient_id,
+    p_after_doctor_id: after.doctor_id,
+    p_credited_amount: after.creditedAmount,
+  });
+  if (error) throw error;
 };
 
 // ── Writes ────────────────────────────────────────────────────────────────────
 
-export const upsertPatientBalance = async (data: {
+/**
+ * Atomically creates or credits a patient's balance (public.credit_patient_balance):
+ * increments total_paid by `amount`, optionally sets a new total_due, and logs the
+ * matching patient_balance_events row — all in one DB statement, so a slow network
+ * or a second concurrent user can never cause a lost update. This is the only way
+ * payments should be credited to a balance; do not read-modify-write from the client.
+ *
+ * Pass `reset: true` whenever the caller found no *active* balance client-side
+ * (balance was null, or was_settled) and is starting a fresh treatment cycle —
+ * the underlying row may still exist from a prior, fully-paid cycle, and its
+ * stale total_paid must be overwritten, not added to.
+ */
+export const creditPatientBalance = async (params: {
   patient_id: string;
   doctor_id: string;
-  total_due: number;
-  total_paid: number;
-  is_settled: boolean;
+  amount: number;
+  new_total_due?: number | null;
+  transaction_id?: string | null;
   notes?: string | null;
+  reset?: boolean;
 }): Promise<PatientBalance> => {
   const supabase = getSupabaseClient();
-  const { data: result, error } = await supabase
-    .from('patient_balance')
-    .upsert({ ...data, updated_at: new Date().toISOString() }, { onConflict: 'patient_id,doctor_id' })
-    .select()
-    .single();
-  if (error) throw error;
-  return result;
-};
-
-export const updatePatientBalance = async (
-  id: string,
-  updates: Partial<Pick<PatientBalance, 'total_due' | 'total_paid' | 'is_settled' | 'notes'>>
-): Promise<PatientBalance> => {
-  const supabase = getSupabaseClient();
-  const { data, error } = await supabase
-    .from('patient_balance')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc('credit_patient_balance', {
+    p_patient_id: params.patient_id,
+    p_doctor_id: params.doctor_id,
+    p_amount: params.amount,
+    p_new_total_due: params.new_total_due ?? null,
+    p_transaction_id: params.transaction_id ?? null,
+    p_notes: params.notes ?? null,
+    p_reset: params.reset ?? false,
+  });
   if (error) throw error;
   return data;
-};
-
-export const logBalanceEvent = async (
-  event: Omit<BalanceEvent, 'id' | 'created_at'>
-): Promise<void> => {
-  const supabase = getSupabaseClient();
-  // Fire-and-forget — don't break payment flow if event log fails
-  supabase.from('patient_balance_events').insert([event]).then(() => {});
 };
